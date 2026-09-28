@@ -18,7 +18,7 @@
 |---|---|---|
 | **音节筛选**（拾音） | ✅ 已移植进 t9 方案（引擎层回归通过 + 真机验收，[剩余 Trime 侧确认项](schema/PORTING.md#8-trimeandroid侧待验证清单)） | 九宫格数字串 → 列出所有合法拼音切分（如 `94343` → `zhe`/`xie`/`zhei`…），**点完一个音节继续给剩余数字的音节候选**（`zhe` → `zhe'43` → `ge` → `zhe'ge`），全程零提交，点词才上屏。Rime 系九宫格长期缺失的能力，由 librime-lua 实现 |
 | 删除键上滑清空 | ✅ | `swipe_up: Clear`（全选删除），原有左滑清空保留 |
-| **音节侧栏**（同文·拾音 fork） | ✅ 真机验收通过 | Trime fork（包名 `com.osfans.trime.shiyin`，与官方共存）把音节候选从横向候选条抽进**左侧竖栏**：叠加覆盖符号列、键盘零位移、可滚动、逐字连续选；设置→候选窗口可开关。fork 源码暂在本地分支（Trime develop + 7 commits），后续推 GitHub |
+| **音节侧栏**（同文·拾音 fork） | ✅ 真机验收通过 | Trime fork（包名 `com.osfans.trime.shiyin`，与官方共存）把音节候选从横向候选条抽进**左侧竖栏**：叠加覆盖符号列、键盘零位移、可滚动、逐字连续选；设置→候选窗口可开关。源码：[Koishi-Neko/trime](https://github.com/Koishi-Neko/trime)（默认分支 `shiyin-sidebar`），构建说明见仓库根 `SIDEBAR.md` |
 | 空码标点侧栏 | ✅ | 键盘左列高频标点，输入中自动变为分词/翻页等功能，滑动扩展更多符号 |
 | 数字键盘符号栏 | ✅ | 数字布局左列 `+ - * /` 等符号 |
 | 分类符号面板 | ✅ | liquid keyboard 精简重排：常用(最近) / 中文 / 英文 / 数学 / 表情优先，左侧分类 + 右侧网格 |
