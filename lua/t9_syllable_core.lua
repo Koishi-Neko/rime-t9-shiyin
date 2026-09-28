@@ -257,6 +257,18 @@ function M.prefix_choices(digits)
 end
 
 -- ---------------------------------------------------------------------------
+-- 3.5 输入切分：把「已确认前缀 + 末尾待切分数字」拆开（连续逐字选音节的基础）
+--     "94343"  -> "",     "94343"   （首段：整段纯数字）
+--     "zhe'43" -> "zhe'", "43"      （续段：前面已有确认音节，尾部仍是数字）
+--     "zhe'ge" -> nil                （没有待切分数字）
+-- ---------------------------------------------------------------------------
+function M.split_tail(input)
+    local tail = input:match("(%d+)$")
+    if tail == nil or tail == "" then return nil end
+    return input:sub(1, #input - #tail), tail
+end
+
+-- ---------------------------------------------------------------------------
 -- 4. 候选文本：默认把音节放在 text 上（Trime 候选条按 text 渲染按钮）
 --    默认                   text = 精确拼音（如 "zhe"）
 --    t9_syllable_empty_text text = ""：零泄漏备选模式，信息全在 comment ——
@@ -339,7 +351,7 @@ function M.install_notifier(env)
             local syl = M.candidate_syllable(cand)
             if syl then
                 env.t9_syllable_pending = nil
-                M.rewrite(c, input, cand.start or 0, syl)
+                M.rewrite(c, syl)
                 return
             end
             M.log("[select_notifier] 无法从候选还原拼音，放弃改写")
@@ -351,17 +363,16 @@ function M.install_notifier(env)
         if pending ~= nil and input == "" then
             env.t9_syllable_pending = nil
             M.log("[select_notifier] 走补救路径（引擎已整段提交）")
-            M.rewrite(c, pending.input, pending.start, pending.syl)
+            M.rewrite(c, pending.syl, pending.input)
             return
         end
         M.log("[select_notifier] 不是音节候选，交给引擎默认行为")
     end)
 
     -- 补救路径：若音节候选恰好覆盖整段输入（end == 输入长度），引擎的 OnSelect 会在
-    -- 我们的回调之前就 Commit 整段（commit_notifier 先于 select_notifier 里的后续处理，
-    -- 此时 composition 已被清空）。这里趁 commit_notifier 还能看到选中候选与原始 input，
-    -- 先暂存下来，让 select_notifier 补救改写 —— 这样即使 partial 机制失效（例如
-    -- t9_syllable_no_partial 调试开关打开），点选音节也不会丢输入。
+    -- 我们的回调之前就 Commit 整段（此时 composition 已被清空）。这里趁 commit_notifier
+    -- 还能看到选中候选与原始 input，先暂存下来，让 select_notifier 补救改写 —— 这样即使
+    -- partial 机制失效（例如 t9_syllable_no_partial 调试开关打开），点选音节也不会丢输入。
     env.t9_syllable_commit_conn = ctx.commit_notifier:connect(function(c)
         local cand = c:get_selected_candidate()
         if cand and cand.type == "t9_syllable" then
@@ -369,7 +380,7 @@ function M.install_notifier(env)
             if syl then
                 M.log("[commit_notifier] 音节候选被整段提交，暂存输入以便补救：" ..
                     tostring(c.input) .. " / " .. syl)
-                env.t9_syllable_pending = { input = c.input, start = cand.start or 0, syl = syl }
+                env.t9_syllable_pending = { input = c.input, syl = syl }
             end
         end
     end)
@@ -378,25 +389,29 @@ function M.install_notifier(env)
         code_total, code_source, letter_count, code_missing))
 end
 
--- 把「已确认音节」写回 context.input：94343 --(zhe)--> zhe'43
-function M.rewrite(c, input, start, syl)
-    local digits = M.to_digits(syl)
-    local head, consumed
-    if input:sub(start + 1, start + #digits) == digits then
-        head = input:sub(1, start)              -- start 按 0-based
-        consumed = start + #digits
-    elseif input:sub(start, start + #digits - 1) == digits then
-        head = input:sub(1, start - 1)          -- 1-based 兜底
-        consumed = start + #digits - 1
-    else
-        head = ""
-        local p = input:find("^'*%d+")
-        consumed = p and (p - 1 + #digits) or #digits
+-- 把「本次点选的音节」写回 context.input：
+--   94343  --(zhe)-->  zhe'43        （首段：前缀为空）
+--   zhe'43 --(ge)-->   zhe'ge        （续段：前缀取到最后一个撇号，含已确认音节）
+--   yi'4343 --(ge)-->  yi'ge'43      （还有很多位数没定完时，继续留数字尾巴）
+-- 输入从哪来：改写总是作用于「末尾那段待切分数字」，音节自己就说明了要消费前几位数字
+-- （43 → ge），所以不需要候选的 start，直接用 context.input 的尾部即可。
+function M.rewrite(c, syl, input)
+    input = input or c.input
+    local prefix, tail = M.split_tail(input)
+    if tail == nil then
+        M.log("[rewrite] 输入尾部没有待切分数字，放弃改写：" .. tostring(input))
+        return
     end
-    local rest = input:sub(consumed + 1)
+    local digits = M.to_digits(syl)
+    if tail:sub(1, #digits) ~= digits then
+        M.log(string.format("[rewrite] 音节 %s(%s) 与尾部数字 %s 不匹配，放弃改写",
+            syl, digits, tail))
+        return
+    end
+    local rest = tail:sub(#digits + 1)
     -- 用撇号隔开「已确认音节」与「后续待切分数字」。依赖 schema 的
     -- speller/delimiter 含单引号，否则撇号会被当成音节中止点（见 PORTING.md）。
-    local newinput = rest == "" and (head .. syl) or (head .. syl .. "'" .. rest)
+    local newinput = rest == "" and (prefix .. syl) or (prefix .. syl .. "'" .. rest)
     M.log("[rewrite] " .. input .. "  --(" .. syl .. ")-->  " .. newinput)
     c.input = newinput
 end

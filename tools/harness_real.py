@@ -388,6 +388,98 @@ def scenario_emoji_variants(r: H.Rime, transcript: list[str], tag: str) -> None:
             f"全表希腊字母={variants}")
 
 
+def find_cand(cands, comment_prefix: str) -> int | None:
+    """按 comment 前缀找音节候选（comment 就是这个候选定下来的写法：zhe'43 / ge）。"""
+    return next((i for i, (t, c) in enumerate(cands)
+                 if is_syllable_cand(t, c) and c.startswith(comment_prefix)), None)
+
+
+def scenario_continuous(r: H.Rime, transcript: list[str], mode: str) -> None:
+    """连续逐字选音节：点完一个音节后，剩余数字继续出音节候选，直到全部定完再出词候选。"""
+    hdr(f"[port] 连续逐字选音节（mode={mode}）")
+    # （输入, [(点选的音节写法, 期望改写后的 input), ...], 最后点选上屏的词)
+    plans = [
+        ("94343", [("zhe'43", "zhe'43"), ("ge", "zhe'ge")], "这个"),
+        ("74264", [("pia'64", "pia'64"), ("mi", "pia'mi")], None),
+        ("944343", [("yi'4343", "yi'4343"), ("ge'43", "yi'ge'43"), ("ge", "yi'ge'ge")], None),
+    ]
+    for digits, steps, final_word in plans:
+        print(f"\n-- {digits} 连续选 {len(steps)} 步 --")
+        r.clear()
+        r.set_input(digits)
+        ok_all = True
+        line = [f"[port:{mode}] {digits}"]
+        for syl_comment, want_input in steps:
+            cands = r.candidates()
+            idx = find_cand(cands, syl_comment)
+            if idx is None:
+                print(f"   [FAIL] 输入 {r.input()!r} 时找不到候选 comment={syl_comment!r}"
+                      f"（前 8={[(t, c) for t, c in cands[:8]]}）")
+                line.append(f"FAIL(找不到 {syl_comment})")
+                ok_all = False
+                break
+            n_syl, n_dict = len(split_cands(cands)[0]), len(split_cands(cands)[1])
+            r.select(idx)
+            comm = r.take_commit()
+            after = r.input()
+            step_ok = (after == want_input and comm == "")
+            ok_all = ok_all and step_ok
+            print(f"   点 #{idx}({syl_comment})：候选 {n_syl} 音节/{n_dict} 词典 → "
+                  f"input={after!r} commit={comm!r} preview={r.preview()!r} step_ok={step_ok}")
+            line.append(f"{syl_comment}→{after!r}(commit={comm!r})")
+        else:
+            # 全部音节定完之后：候选里应出现词候选，点它上屏
+            if final_word is not None:
+                cands = r.candidates()
+                widx = next((i for i, (t, _) in enumerate(cands) if t == final_word), None)
+                if widx is None:
+                    print(f"   [FAIL] {r.input()!r} 的候选里没有 {final_word!r}"
+                          f"（前 6={[t for t, _ in cands[:6]]}）")
+                    line.append(f"FAIL(无 {final_word})")
+                    ok_all = False
+                else:
+                    r.select(widx)
+                    comm = r.take_commit()
+                    print(f"   点词 #{widx}({final_word}) -> commit={comm!r}（应为 {final_word}）")
+                    line.append(f"点词{final_word}→commit={comm!r}")
+                    ok_all = ok_all and comm == final_word
+        transcript.append(" ".join(line) + f" 全链OK={ok_all}")
+
+    # 连续选节的中间态：候选里音节候选打头、词典候选跟在后面（对比 base 的词典候选顺序）
+    for text in ("zhe'43", "zhe'ge", "yi'ge'43"):
+        r.clear()
+        r.set_input(text)
+        cands = r.candidates()
+        syl, rest = split_cands(cands)
+        print(f"\n  中间态 {text!r}：音节候选 {[c[1] for c in syl]}，词典候选前 5={[t for t, _ in rest[:5]]}")
+        transcript.append(
+            f"[port:{mode}] 中间态 {text!r} 音节候选={[c[1] for c in syl]} "
+            f"词典候选前5={[t for t, _ in rest[:5]]}")
+
+
+def scenario_final_syllable(r: H.Rime, transcript: list[str], mode: str) -> None:
+    """末音节（音节正好吃掉整段输入，如 436→gen、343→die）点选也不能有提交。
+    这是 filter 的「顶到输入末尾再缩一位」规则要保证的事。"""
+    hdr(f"[port] 末音节点选零提交（mode={mode}）")
+    for digits, syl, want in (("436", "gen", "gen"), ("343", "die", "die"),
+                              ("943", "zhe", "zhe")):
+        r.clear()
+        r.set_input(digits)
+        cands = r.candidates()
+        idx = find_cand(cands, syl)
+        if idx is None:
+            print(f"   {digits}: 没有 {syl} 候选，跳过")
+            transcript.append(f"[port:{mode}] {digits} 没有 {syl} 候选，跳过")
+            continue
+        r.select(idx)
+        comm = r.take_commit()
+        after = r.input()
+        ok = comm == "" and after == want
+        print(f"   {digits} 点末音节 #{idx}({syl}) -> commit={comm!r} input={after!r} ok={ok}")
+        transcript.append(f"[port:{mode}] {digits} 点末音节 {syl} -> commit={comm!r} "
+                          f"input={after!r} ok={ok}")
+
+
 def scenario_single_split(r: H.Rime, transcript: list[str]) -> None:
     hdr("[port] 切分门槛：单一切分不出音节候选（直接出词典候选）")
     codes = load_package_codes()
@@ -424,6 +516,17 @@ def scenario_processor(r: H.Rime, transcript: list[str], tag: str) -> None:
         r.key(ch)
     print(f"   逐键敲 94343 -> input={r.input()!r}")
     transcript.append(f"[{tag}] 逐键敲 94343 -> input={r.input()!r} 候选={[t for t, _ in r.candidates()[:6]]}")
+    # 续段的 Tab 循环：已经确认了 zhe，Tab 应当接着切剩余数字 43
+    r.clear()
+    r.set_input("zhe'43")
+    seen2 = []
+    for i in range(4):
+        if not r.key("Tab"):
+            print(f"   （续段）Tab 第 {i + 1} 次未被消费")
+            break
+        seen2.append(r.input())
+        print(f"   （续段）Tab #{i + 1} -> input={r.input()!r}")
+    transcript.append(f"[{tag}] 续段 zhe'43 Tab 循环结果：{seen2}")
 
 
 def cmd_run(variant: str, mode: str) -> int:
@@ -450,11 +553,13 @@ def cmd_run(variant: str, mode: str) -> int:
         scenario_regression(r, transcript, variant)
         scenario_delimiter(r, transcript, variant)
         if variant == "port":
-            scenario_syllable_flow(r, transcript, mode)
             scenario_single_split(r, transcript)
+            scenario_final_syllable(r, transcript, mode)
         scenario_emoji_variants(r, transcript, variant)
         scenario_leak(r, transcript, variant, mode)
         if variant == "port":
+            scenario_continuous(r, transcript, mode)
+            scenario_syllable_flow(r, transcript, mode)
             scenario_remedy(r, transcript)
         scenario_word_select(r, transcript, variant)
         scenario_space(r, transcript, variant)

@@ -8,7 +8,7 @@
 
 | 功能 | 状态 | 说明 |
 |---|---|---|
-| **音节筛选**（拾音） | ✅ 已移植进 t9 方案（引擎层回归通过 + 真机验收，[剩余 Trime 侧确认项](schema/PORTING.md#8-trimeandroid侧待验证清单)） | 九宫格数字串 → 列出所有合法拼音切分（如 `94343` → `zhe`/`xie`/`zhei`…），点选音节锁定切分，预编辑改写为精确拼音继续接力。Rime 系九宫格长期缺失的能力，由 librime-lua 实现 |
+| **音节筛选**（拾音） | ✅ 已移植进 t9 方案（引擎层回归通过 + 真机验收，[剩余 Trime 侧确认项](schema/PORTING.md#8-trimeandroid侧待验证清单)） | 九宫格数字串 → 列出所有合法拼音切分（如 `94343` → `zhe`/`xie`/`zhei`…），**点完一个音节继续给剩余数字的音节候选**（`zhe` → `zhe'43` → `ge` → `zhe'ge`），全程零提交，点词才上屏。Rime 系九宫格长期缺失的能力，由 librime-lua 实现 |
 | 删除键上滑清空 | ✅ | `swipe_up: Clear`（全选删除），原有左滑清空保留 |
 | 空码标点侧栏 | ✅ | 键盘左列高频标点，输入中自动变为分词/翻页等功能，滑动扩展更多符号 |
 | 数字键盘符号栏 | ✅ | 数字布局左列 `+ - * /` 等符号 |
@@ -18,11 +18,12 @@
 
 音节筛选不依赖任何引擎补丁，纯 librime-lua 实现：
 
-1. `lua_translator` 对纯数字输入用「全拼合法音节前缀树」DFS 枚举所有切分，把可选首音节产出为候选
-   （text = 音节如 `zhe`，comment = 短读法如 `zhe'43`）
-2. `lua_filter` 把音节候选的跨度缩到「首音节末尾」，让引擎按 partial 选择处理（不自动提交）
-3. 点选后经 `select_notifier` 扫描 composition 还原被点中的音节，将 `context.input` 从 `94343` 改写为 `zhe'43`
-4. 引擎原生接力：字母按精确拼音、剩余数字继续 T9
+1. `lua_translator` 对「末尾还有待切分数字」的输入用「全拼合法音节前缀树」DFS 枚举读法，
+   把可选首音节产出为候选（text = 音节如 `zhe`，comment = 短读法如 `zhe'43`）
+2. `lua_filter` 把音节候选的跨度缩到「本次消费的数字末尾」，让引擎按 partial 选择处理（点选永不提交）
+3. 点选后经 `select_notifier` 扫描 composition 还原被点中的音节，
+   把 `context.input` 从 `94343` 改写为 `zhe'43`；剩余数字继续出音节候选（连续逐字选音节）
+4. 引擎原生接力：字母按精确拼音、剩余数字继续 T9，全部定完或随时点词候选上屏
 
 完整技术验证（含真实转录与 11 条踩坑）见 [docs/syllable-prototype-report.md](docs/syllable-prototype-report.md)。
 为什么移植时**没有**照原型改用 `fluid_editor`、音节候选怎么改 text 渲染、emoji 变体与
