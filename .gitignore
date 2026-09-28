@@ -1,0 +1,7 @@
+out/
+build/
+__pycache__/
+*.userdb/
+staging/
+t9phone/
+*.log
