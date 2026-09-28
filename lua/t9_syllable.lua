@@ -14,6 +14,9 @@
 -- 切分门槛：
 --   * 首段（整段就是数字）：要 ≥2 种切分，单一切分（98 / 94 这种）不出音节候选，
 --     把菜单让给词典候选，普通九宫格输入完全不受影响。
+--     例外：唯一切分但**切出了 ≥2 段**（段边界存在、只是位置唯一）且首音节有歧义时也出
+--     —— 9378 只能切成 93'78，但首段可以是 ye / ze，用户要靠这个打「择取」类词。
+--     整段就是一个音节的（98 → wu/yu、436 → gen/hen）仍不出，单字读音交给词典候选。
 --   * 续段（前面已有确认音节）：只要尾部数字有 ≥2 个首音节可选就继续出（例如 43 → ge / he），
 --     因为用户已经明确在用「逐字选音节」这条路了。
 --
@@ -40,9 +43,12 @@ function M.func(input, seg, env)
 
     -- 首段 / 续段：门槛不同（见文件头说明）
     local continuation = prefix ~= "" or seg.start > 0
-    if not continuation and #core.splits(tail, 2) < 2 then
-        core.log("[translator] " .. tail .. " 只有单一切分 -> 不出音节候选")
-        return
+    if not continuation then
+        local sp = core.splits(tail, 2)
+        if #sp < 2 and (#sp == 0 or #sp[1] < 2) then
+            core.log("[translator] " .. tail .. " 唯一切分且无段边界 -> 不出音节候选")
+            return
+        end
     end
     local choices = core.prefix_choices(tail)
     if #choices < 2 then

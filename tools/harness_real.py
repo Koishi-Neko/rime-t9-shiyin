@@ -481,9 +481,9 @@ def scenario_final_syllable(r: H.Rime, transcript: list[str], mode: str) -> None
 
 
 def scenario_single_split(r: H.Rime, transcript: list[str]) -> None:
-    hdr("[port] 切分门槛：单一切分不出音节候选（直接出词典候选）")
+    hdr("[port] 切分门槛：整段单音节不出（98/436）；唯一切分但有段边界且首音节歧义则出（9378/9434）")
     codes = load_package_codes()
-    for digits in ("98", "94", "9434", "2246", "436"):
+    for digits in ("98", "94", "436", "9378", "9434", "2246"):
         segs = digit_segmentations(digits, codes)
         r.clear()
         r.set_input(digits)
