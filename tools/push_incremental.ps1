@@ -42,24 +42,24 @@ foreach ($t in $targets) {
         $shell.Namespace($tmp).CopyHere($f, 0x614)
         Start-Sleep -Seconds 3
         if ((Test-Path $dst) -and ((Get-FileHash $dst -Algorithm SHA256).Hash.ToLower() -eq $local)) {
-            Write-Output "$name: 已是最新，跳过"; continue
+            Write-Output "${name}: 已是最新，跳过"; continue
         }
-        Write-Output "$name: 旧版，删除重推（如弹确认框请点「是」）"
+        Write-Output "${name}: 旧版，删除重推（如弹确认框请点「是」）"
         ($f.Verbs() | Where-Object { $_.Name -match '删除|Delete' }).DoIt()
         Start-Sleep -Seconds 3
     } else {
-        Write-Output "$name: 手机端缺失，直接推送"
+        Write-Output "${name}: 手机端缺失，直接推送"
     }
     $t.dir.CopyHere($src, 0x614)
     Start-Sleep -Seconds 5
     if (Test-Path $dst) { Remove-Item $dst -Force }
     $f2 = $t.dir.Items() | Where-Object { $_.Name -eq $name }
-    if (-not $f2) { Write-Output "$name: WARN 推送后找不到"; $failed++; continue }
+    if (-not $f2) { Write-Output "${name}: WARN 推送后找不到"; $failed++; continue }
     $shell.Namespace($tmp).CopyHere($f2, 0x614)
     Start-Sleep -Seconds 3
     if ((Test-Path $dst) -and ((Get-FileHash $dst -Algorithm SHA256).Hash.ToLower() -eq $local)) {
-        Write-Output "$name: 推送校验通过"
-    } else { Write-Output "$name: WARN 推送后校验不过"; $failed++ }
+        Write-Output "${name}: 推送校验通过"
+    } else { Write-Output "${name}: WARN 推送后校验不过"; $failed++ }
 }
 if ($failed -gt 0) { Write-Output "DONE（$failed 个失败）"; exit 1 }
 Write-Output 'DONE：全部一致。手机上打开同文·拾音点顶栏循环箭头「部署」后生效'

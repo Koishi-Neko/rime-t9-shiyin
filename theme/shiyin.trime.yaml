@@ -212,6 +212,12 @@ colors:
   25: &COLOR_DARK_GRAY 0xff6f7b83 #深灰
   26: &COLOR_DARK_SEA_BLUE_P 0xff025281 #深暗海蓝
   27: &COLOR_XPERIA_CANDIDATE_GREEN 0xff00a886 #SONY绿
+  28: &COLOR_BD_KEY 0xff2c2c2e #百度黑·键帽灰
+  29: &COLOR_BD_FUNC 0xff1c1c1e #百度黑·功能键灰
+  30: &COLOR_BD_PRESS 0xff48484c #百度黑·按下浅灰
+  31: &COLOR_BD_BLUE 0xff1e88f5 #百度黑·回车蓝
+  32: &COLOR_BD_BLUE_P 0xff0b5ed7 #百度黑·回车蓝按下
+  33: &COLOR_BD_HINT 0xff8e8e93 #百度黑·提示灰
   
 #配色方案
 preset_color_schemes:
@@ -325,6 +331,116 @@ preset_color_schemes:
     th4: *COLOR_BLACK #第四行文字颜色 (was *color1)
     gnt: *COLOR_WHITE #功能键文字颜色（符号键盘等）
     bct0: *COLOR_GRAY_BLUE #aoeiu字母键文字颜色
+
+  baidu_dark:
+    name: "百度黑.九宫拾音"
+    author: 九宫拾音项目
+    # 悬浮窗
+    border_color: *COLOR_BD_PRESS #悬浮窗边框
+    text_color: *COLOR_WHITE #悬浮窗编码
+    text_back_color: *COLOR_BD_FUNC #悬浮窗背景
+    hilited_text_color: *COLOR_BD_BLUE #悬浮窗高亮编码
+    label_color: *COLOR_BD_HINT #悬浮窗候选项序号
+    hilited_back_color: *COLOR_TRANSPARENT #悬浮窗高亮编码背景
+    # 候选区（侧栏也吃这一套：candidateTextColor/commentTextColor/hilitedCandidate*）
+    back_color: *COLOR_BLACK #候选区背景状态栏(无障碍)
+    candidate_separator_color: *COLOR_TRANSPARENT #候选区分隔颜色（百度黑风格：不画线，靠间隙）
+    candidate_text_color: *COLOR_WHITE # 候选区文本颜色
+    comment_text_color: *COLOR_BD_HINT # 候选区编码文本颜色
+    hilited_candidate_back_color: *COLOR_BD_BLUE # 候选区高亮背景颜色
+    hilited_candidate_text_color: *COLOR_WHITE # 候选区高亮文本颜色
+    hilited_comment_text_color: *COLOR_WHITE # 候选区高亮编码文本颜色
+    # 键盘
+    keyboard_back_color: *COLOR_BLACK #键盘背景颜色
+    # 正常按键
+    key_back_color: *COLOR_BD_KEY #按键背景颜色
+    key_border_color: *COLOR_TRANSPARENT #按键边框颜色
+    key_symbol_color: *COLOR_BD_HINT #按键符号颜色
+    key_text_color: *COLOR_WHITE #按键文本颜色
+    hilited_key_back_color: *COLOR_BD_PRESS #按键激活背景颜色
+    hilited_key_symbol_color: *COLOR_BD_HINT #按键激活符号颜色
+    hilited_key_text_color: *COLOR_WHITE #按键激活文本颜色
+    # 功能键，shift常态
+    off_key_back_color: *COLOR_BD_FUNC #功能键，shift常态  背景颜色
+    off_key_text_color: *COLOR_WHITE #功能键，shift常态  文本颜色
+    hilited_off_key_back_color: *COLOR_BD_PRESS #激活功能键，shift常态  背景颜色
+    hilited_off_key_text_color: *COLOR_WHITE #激活功能键，shift常态  文本颜色
+    # shift激活
+    on_key_back_color: *COLOR_BD_BLUE # 背景颜色
+    on_key_text_color: *COLOR_WHITE # 文本颜色
+    hilited_on_key_back_color: *COLOR_BD_BLUE_P
+    hilited_on_key_text_color: *COLOR_WHITE
+    # 按键下去气泡
+    preview_back_color: *COLOR_BD_FUNC
+    preview_text_color: *COLOR_WHITE
+    shadow_color: *COLOR_BLACK
+    # 按键额外配置
+    AAA: *COLOR_BD_KEY
+    BBB: *COLOR_BD_KEY
+    CCC: *COLOR_BD_KEY
+    ABH: *COLOR_BD_PRESS
+    AAH: *COLOR_BD_PRESS
+    BBH: *COLOR_BD_PRESS
+    CCH: *COLOR_BD_PRESS
+    # 数字
+    szbdb: *COLOR_BD_KEY
+    szhcb: *COLOR_BD_BLUE
+    szhch: *COLOR_BD_BLUE_P
+    szgnb: *COLOR_BD_FUNC
+    szgnh: *COLOR_BD_PRESS
+    szhct: *COLOR_WHITE
+    # 符号
+    bdb: *COLOR_BD_KEY
+    bdh: *COLOR_BD_PRESS
+    # 功能
+    gnb: *COLOR_BD_FUNC
+    gnh: *COLOR_BD_PRESS
+    gns: *COLOR_BD_HINT
+    # 空格
+    kgb: *COLOR_BD_KEY
+    kgh: *COLOR_BD_PRESS
+    kgs: *COLOR_BD_HINT
+    kgt: *COLOR_WHITE
+    # backspace（百度黑：深灰底白图标，红色只留给上滑清空气泡）
+    bkss: *COLOR_WHITE
+    bkst: *COLOR_WHITE # backspace按键颜色
+    bksb: *COLOR_BD_FUNC # backspace按键背景
+    bksh: *COLOR_BD_PRESS # backspace按键激活背景
+    # 回车
+    hcb: *COLOR_BD_BLUE
+    hch: *COLOR_BD_BLUE_P
+    hcs: *COLOR_BD_HINT
+    hct: *COLOR_WHITE
+    hcht: *COLOR_WHITE
+    hchs: *COLOR_BD_HINT
+    hbdt: *COLOR_WHITE
+    hsb: *COLOR_BD_BLUE
+    # 符号
+    cdt: *COLOR_BD_BLUE
+    fyt: *COLOR_BD_HINT
+    # 菜单
+    xdb: *COLOR_BLACK
+    # 键盘布局引用的中间颜色别名
+    bkg: *COLOR_BD_KEY #空格键背景色
+    tkg: *COLOR_WHITE #空格键文字颜色
+    benter: *COLOR_BD_BLUE #回车键背景色
+    tenter: *COLOR_WHITE #回车键文字颜色
+    bgn: *COLOR_BD_FUNC #功能键背景色
+    tgn: *COLOR_WHITE #功能键文字颜色
+    bbs: *COLOR_BD_FUNC #退格键背景色
+    tbs: *COLOR_WHITE #退格键文字颜色
+    baoe: *COLOR_BD_KEY #aoeiu背景色
+    taoe: *COLOR_BD_BLUE #aoeiu文字颜色
+    bh1: *COLOR_BD_KEY #第一行背景色
+    th1: *COLOR_WHITE #第一行文字颜色
+    bh2: *COLOR_BD_KEY #第二行背景色
+    th2: *COLOR_WHITE #第二行文字颜色
+    bh3: *COLOR_BD_KEY #第三行背景色
+    th3: *COLOR_WHITE #第三行文字颜色
+    bh4: *COLOR_BD_KEY #第四行背景色
+    th4: *COLOR_WHITE #第四行文字颜色
+    gnt: *COLOR_WHITE #功能键文字颜色（符号键盘等）
+    bct0: *COLOR_WHITE #aoeiu字母键文字颜色
 
   default1:
     name: "默认.讯飞原生版"
