@@ -8,6 +8,8 @@
 #   3. filters 末尾挂 lua_filter@*t9_syllable_filter，并去掉 uniquifier
 #      （uniquifier 会把 text 为空的音节候选合并成一个）
 #   4. speller 显式写出 delimiter: " '"
+#   5. emoji 简化器配 excluded_types: [ t9_syllable ]，隔离 opencc/others.txt 里
+#      「xi→ξ/Ξ、pi→π/Π」这类以音节为键的变体候选
 # 另外：editor 保持原包的 express_editor（**不改** fluid_editor）—— 音节候选只覆盖
 # 「首音节」那几位数字，靠 librime 的 partial 选择机制避开自动提交，详见 PORTING.md。
 # 改动仅限以上各点，其余与原包逐字一致。
@@ -97,6 +99,15 @@ engine:
     # uniquifier 会把它们当成重复候选合并成一个，导致无法逐个点选。
     # 代价：词典候选之间不再按 text 去重（见 PORTING.md「已知行为变化」）。
     # - uniquifier # 去重
+
+# Emoji（其余键继承 rime_ice.schema.yaml 的 emoji 段）
+# 九宫拾音：把音节候选整体排除在 emoji 简化之外。包内 opencc/others.txt 里有以音节为键的
+# 条目（xi→xi ξ Ξ、pi→pi π Π、chi→χ/Χ、mu→μ/Μ、nu→ν/Ν），音节候选 text 改成音节本身后，
+# simplifier@emoji 会给它们各派生出一串希腊字母变体候选，污染候选条（实测 94343 的第 1、2 位
+# 变成 ξ/Ξ）。librime 的 Simplifier 支持 excluded_types（src/rime/gear/simplifier.cc 里
+# Convert() 先按候选 type 过滤），按 type 一次性隔离全部 5 个音节，且不影响其它候选。
+emoji:
+  excluded_types: [ t9_syllable ]
 
 predictor:
   db: predict.db

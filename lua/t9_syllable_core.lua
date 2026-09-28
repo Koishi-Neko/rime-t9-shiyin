@@ -231,18 +231,7 @@ function M.splits(digits, limit)
     return out
 end
 
--- 切分 → 可读写法：能还原成精确拼音的用拼音，还原不了的（包内模糊派生码）保留数字码
-function M.render_split(split)
-    local out = {}
-    for i = 1, #split do
-        local code = split[i]
-        local node = node_of(code)
-        out[i] = (node and node.letters and node.letters[1]) or code
-    end
-    return table.concat(out, "'")
-end
-
--- 首音节可选集：{ { code, syl, rest, tails={写法,...}, tail_total }, ... }
+-- 首音节可选集：{ { code, len, syl, rest }, ... }
 -- 只保留「剩余部分仍有合法切分」的数字前缀（最后一位音节除外，此时 rest == ""）
 function M.prefix_choices(digits)
     local out = {}
@@ -252,20 +241,13 @@ function M.prefix_choices(digits)
         if node == nil then break end
         if node.terminal and node.letters then
             local rest = digits:sub(i + 1)
-            local tails = rest == "" and {} or M.splits(rest, MAX_SPLITS)
-            if rest == "" or #tails > 0 then
-                local preview = {}
-                for k = 1, math.min(#tails, 3) do
-                    preview[k] = M.render_split(tails[k])
-                end
+            if rest == "" or #M.splits(rest, 1) > 0 then
                 for _, syl in ipairs(node.letters) do
                     out[#out + 1] = {
                         code = digits:sub(1, i),
                         len = i,             -- 首音节占用的数字位数
                         syl = syl,
-                        rest = rest,
-                        tails = preview,     -- 最多 3 种后续切分写法（comment 预览用）
-                        tail_total = #tails,
+                        rest = rest,         -- 剩余待切分数字
                     }
                 end
             end
@@ -275,14 +257,17 @@ function M.prefix_choices(digits)
 end
 
 -- ---------------------------------------------------------------------------
--- 4. 候选文本：默认留空（零泄漏）
---    默认          text = ""     —— 预编辑/提交都不含候选文本，标签信息全在 comment
---    t9_syllable_text text = 精确拼音 —— 候选条更醒目，但宿主若直接提交整段输入会把拼音当文本上屏
---    （移植前的 A/B 结论见 docs/syllable-prototype-report.md §4.3：空 text 是唯一零泄漏的模式）
+-- 4. 候选文本：默认把音节放在 text 上（Trime 候选条按 text 渲染按钮）
+--    默认                   text = 精确拼音（如 "zhe"）
+--    t9_syllable_empty_text text = ""：零泄漏备选模式，信息全在 comment ——
+--        代价是真机候选条只剩 comment，用户看到的是一长串注释（见 PORTING.md「text 模式」）
+--    注意：text 非空后，包内 opencc/others.txt 里以音节为键的条目会派生变体候选
+--    （xi→ξ/Ξ、pi→π/Π、chi→χ/Χ、mu→μ/Μ、nu→ν/Ν）；schema 已给 simplifier@emoji 配
+--    excluded_types: [t9_syllable] 把本类候选整体排除，见 PORTING.md「emoji 变体」。
 -- ---------------------------------------------------------------------------
 function M.candidate_text(syl, ctx)
-    if ctx:get_option("t9_syllable_text") then return syl end
-    return ""
+    if ctx:get_option("t9_syllable_empty_text") then return "" end
+    return syl
 end
 
 -- 从候选反推精确拼音（空 text 模式看 comment 开头；文本模式直接看 text）
@@ -343,6 +328,12 @@ function M.install_notifier(env)
 
     env.t9_syllable_select_conn = ctx.select_notifier:connect(function(c)
         local input = c.input
+        -- 诊断开关：跳过改写，用于观察「partial 选择后还没被改写」这一瞬间的引擎状态
+        -- （commit_text_preview / preedit），排查宿主侧看到的数字串，见 PORTING.md。
+        if c:get_option("t9_syllable_no_rewrite") then
+            M.log("[select_notifier] t9_syllable_no_rewrite 打开，跳过改写")
+            return
+        end
         local cand = scan_selected_candidate(c)
         if cand ~= nil then
             local syl = M.candidate_syllable(cand)

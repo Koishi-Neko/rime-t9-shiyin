@@ -121,15 +121,20 @@ def show_candidates(r: H.Rime, limit: int = 30) -> None:
 
 
 def is_syllable_cand(t: str, c: str) -> bool:
-    """音节候选的判定：comment 形如 "zhe'43 | 后续(1)：ge" / "zheng | 完整：zheng"
-    （empty 模式下 text 为空，text 模式下 text 是精确拼音 —— 两种模式都靠 comment 识别）"""
+    """音节候选的判定：text 是纯拼音音节，comment 是同一音节（可能带 '剩余数字'）。
+    例：text='zhe' comment="zhe'43"（text 模式，真机默认）
+        text=''    comment="zhe'43"（t9_syllable_empty_text 空 text 备选模式）
+    词典候选的 comment 是带空格的拼读（'zhe ge'）或为空，不会误判。"""
     import re
-    return re.match(r"^[a-z]+('[0-9]*)? \| ", c) is not None
+    pattern = r"^[a-z]+('[0-9]+)?$"
+    if t:
+        return re.match(pattern, t) is not None and (c == t or c.startswith(t + "'"))
+    return re.match(pattern, c) is not None
 
 
 def apply_mode(r: H.Rime, mode: str) -> None:
-    """empty（默认，零泄漏）| text（候选 text 显示拼音，便于人眼核对）"""
-    r.set_option("t9_syllable_text", mode == "text")
+    """text（真机验收后的默认渲染模式）| empty（零泄漏备选模式，信息全在 comment）"""
+    r.set_option("t9_syllable_empty_text", mode == "empty")
 
 
 def split_cands(cands) -> tuple[list, list]:
@@ -310,6 +315,79 @@ def scenario_remedy(r: H.Rime, transcript: list[str]) -> None:
     r.set_option("t9_syllable_no_partial", False)
 
 
+def scenario_leak(r: H.Rime, transcript: list[str], tag: str, mode: str) -> None:
+    """引擎层提交泄漏排查：纯数字输入过程中、以及点选音节候选时，commit 是否始终为空；
+    同时记录 commit_text_preview（宿主若把它当「待上屏文本」同步进文本框，就会看到它）。"""
+    hdr(f"[{tag}] 提交泄漏排查：逐键输入 + 点选音节（mode={mode}）")
+    r.clear()
+    leaks = []
+    for ch in "94343":
+        r.key(ch)
+        comm = r.take_commit()
+        if comm:
+            leaks.append((ch, comm))
+        print(f"   敲 {ch}: input={r.input()!r} commit={comm!r} preview={r.preview()!r}")
+    transcript.append(
+        f"[{tag}:{mode}] 逐键敲 94343 每键 commit 非空次数={len(leaks)}"
+        f"（期望 0）；末态 preview={r.preview()!r}")
+
+    r.clear()
+    r.set_input("94343")
+    cands = r.candidates()
+    print(f"   set_input: input={r.input()!r} commit={r.take_commit()!r} preview={r.preview()!r}")
+    idx = next((i for i, (t, c) in enumerate(cands) if is_syllable_cand(t, c) and c.startswith("zhe'")), None)
+    if idx is None:
+        print("   [SKIP] 没有 zhe 音节候选")
+        return
+    r.select(idx)
+    comm = r.take_commit()
+    print(f"   点选 #{idx}(zhe): input={r.input()!r} commit={comm!r} preview={r.preview()!r} "
+          f"preedit={r.preedit()!r}")
+    transcript.append(
+        f"[{tag}:{mode}] 点选音节候选 -> commit={comm!r} input={r.input()!r} "
+        f"preview={r.preview()!r} preedit={r.preedit()!r}")
+
+    # 诊断：跳过改写，观察「partial 选择已发生、但 input 还没被改写」这一瞬间的引擎状态。
+    # 这是真机「文本框里出现 343」最可能的来源：该状态下 commit_text_preview == 尾部数字。
+    r.set_option("t9_syllable_no_rewrite", True)
+    r.clear()
+    r.set_input("94343")
+    r.select(idx)
+    comm = r.take_commit()
+    print(f"   [诊断] 不做改写时点选 #{idx}: input={r.input()!r} commit={comm!r} "
+          f"preview={r.preview()!r} preedit={r.preedit()!r}")
+    transcript.append(
+        f"[{tag}:{mode}] 诊断(跳过改写) 点选音节候选 -> commit={comm!r} input={r.input()!r} "
+        f"preview={r.preview()!r} preedit={r.preedit()!r}")
+    r.set_option("t9_syllable_no_rewrite", False)
+
+
+GREEK_VARIANTS = "ξΞπΠχΧμΜνΝ"   # opencc/others.txt 里 5 个音节的希腊字母映射
+
+
+def scenario_emoji_variants(r: H.Rime, transcript: list[str], tag: str) -> None:
+    """音节候选的 text 非空后，会不会被 opencc emoji/others 词典二次加工出变体候选。
+    对照点：94343/74264 的首屏是音节候选（base 变体没有音节候选，可对照）；
+    244/68 两个输入本来就没有音节候选，它们的 χ/Χ、μ/Μ/ν/Ν 来自词典里 text 就是拼音的
+    英文类词条（melt_eng 的 chi/mu/nu），base 与 port 应当一模一样 —— 属于原包既有行为。"""
+    hdr(f"[{tag}] 音节候选是否派生 emoji/symbol 变体（xi→ξ/Ξ、pi→π/Π…）")
+    for digits, what in (("94343", "首屏是音节候选"), ("74264", "首屏是音节候选"),
+                         ("244", "无音节候选（对照）"), ("68", "无音节候选（对照）")):
+        r.clear()
+        r.set_input(digits)
+        cands = r.candidates()
+        texts = [t for t, _ in cands]
+        head = texts[:10]
+        variants = [t for t in texts if t and t[0] in GREEK_VARIANTS]
+        head_variants = [t for t in head if t and t[0] in GREEK_VARIANTS]
+        print(f"   input={digits}（{what}）共 {len(texts)} 条")
+        print(f"      前 10 候选={head}")
+        print(f"      首屏希腊字母={head_variants}  全表希腊字母={variants}")
+        transcript.append(
+            f"[{tag}] input={digits}({what}) 前10候选={head} 首屏希腊字母={head_variants} "
+            f"全表希腊字母={variants}")
+
+
 def scenario_single_split(r: H.Rime, transcript: list[str]) -> None:
     hdr("[port] 切分门槛：单一切分不出音节候选（直接出词典候选）")
     codes = load_package_codes()
@@ -367,14 +445,19 @@ def cmd_run(variant: str, mode: str) -> int:
     try:
         if variant == "port":
             apply_mode(r, mode)
+        # 先跑「只看不改」的场景（它们的词典候选列表必须是干净的初始状态），
+        # 会提交候选的场景（点词、空格）放最后，避免用户词典学习影响前面的读数。
         scenario_regression(r, transcript, variant)
         scenario_delimiter(r, transcript, variant)
-        scenario_word_select(r, transcript, variant)
-        scenario_space(r, transcript, variant)
         if variant == "port":
             scenario_syllable_flow(r, transcript, mode)
-            scenario_remedy(r, transcript)
             scenario_single_split(r, transcript)
+        scenario_emoji_variants(r, transcript, variant)
+        scenario_leak(r, transcript, variant, mode)
+        if variant == "port":
+            scenario_remedy(r, transcript)
+        scenario_word_select(r, transcript, variant)
+        scenario_space(r, transcript, variant)
         scenario_processor(r, transcript, variant)
     finally:
         r.close()
@@ -390,8 +473,8 @@ def cmd_run(variant: str, mode: str) -> int:
 
     transcript.append(f"# lua 日志：{log}")
     TRANSCRIPT_DIR.mkdir(parents=True, exist_ok=True)
-    if variant == "port" and mode == "empty":
-        name = "run_realpackage.txt"          # 最终推荐模式（零泄漏）
+    if variant == "port" and mode == "text":
+        name = "run_realpackage.txt"          # 真机验收后的默认渲染模式
     elif variant == "port":
         name = f"run_realpackage_{mode}.txt"
     else:
@@ -406,7 +489,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["all", "deploy", "run"], nargs="?", default="all")
     ap.add_argument("--variant", choices=["base", "port"], default="port")
-    ap.add_argument("--mode", choices=["text", "empty"], default="empty")
+    ap.add_argument("--mode", choices=["text", "empty"], default="text")
     args = ap.parse_args()
 
     if args.cmd == "deploy":
