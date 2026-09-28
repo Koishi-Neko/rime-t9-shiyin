@@ -1,0 +1,230 @@
+# Rime schema
+# encoding: utf-8
+#
+# 本文件 = rime-ice-t9-phone v3.2.2 的 t9.schema.yaml + 「九宫拾音」音节筛选移植。
+# 移植点（详见同目录 PORTING.md）：
+#   1. processors 首位挂 lua_processor@*t9_syllable_cycle（Tab/F2 兜底循环切分）
+#   2. translators 首位挂 lua_translator@*t9_syllable（音节候选排在词典候选前）
+#   3. filters 末尾挂 lua_filter@*t9_syllable_filter，并去掉 uniquifier
+#      （uniquifier 会把 text 为空的音节候选合并成一个）
+#   4. speller 显式写出 delimiter: " '"
+# 另外：editor 保持原包的 express_editor（**不改** fluid_editor）—— 音节候选只覆盖
+# 「首音节」那几位数字，靠 librime 的 partial 选择机制避开自动提交，详见 PORTING.md。
+# 改动仅限以上各点，其余与原包逐字一致。
+
+# 适配了仓输入法 [Hamster](https://github.com/imfuxiao/Hamster/) 九宫格布局。
+#
+# 可选，支持英文：
+# 1. 解开 `engine/translators` 下的注释
+# 2. 将 `others/Hamster/melt_eng.custom.yaml` 里的文件拷贝至配置目录，该补丁转写了英文的拼写规则到九宫格；
+
+__include: rime_ice.schema.yaml:/
+
+t9:
+  # 是否显示 rime 中原始的预编辑文本，默认为 true
+  # true: 对 preedit 不做处理，显示 rime 返回的原始 preedit 值。
+  #       如果想通过 lua 自己调整 preedit 的显示，可以设置为 true。
+  # false: 根据候选字 comment 显示转换后的 preedit 内容。
+  #        注意：请务必保证候选字 comment 有效且正确，否则可能导致预编辑文本显示异常。
+  isDisplayOriginalPreedit: false
+
+schema:
+  schema_id: t9
+  name: 拼音九键
+  version: "3.2.2"
+  author:
+    - Dvel
+    - "[morse.hsiao](https://github.com/imfuxiao)"
+  description: |
+    拼音九键 for 仓输入法 & 元书输入法
+  dependencies:
+    - melt_eng # 英文输入，作为次翻译器挂载到拼音方案
+    - t9_abbreviation # Used only after the user confirms a Pinyin abbreviation.
+    - t9_default_abbreviation # Deterministic fallback for unresolved raw digits.
+
+engine:
+  processors:
+    # 九宫拾音：Tab / F2 循环切分兜底。放在首位，只在「纯数字输入且存在多种切分」
+    # 或「当前输入就是本模块上一轮写出的串」时消费按键，其它按键一律返回 kNoop 放行。
+    # 代价：数字串存在多种切分时，default.yaml 里 `Tab → Shift+Right`（光标移到下一音节）
+    # 会被本处理器抢先接管（见 PORTING.md「已知行为变化」）。
+    - lua_processor@*t9_syllable_cycle
+    # Physical T9 key semantics are owned by the Android IME. t9_processor is a
+    # Hamster/Yuanshu host component and prevents librime/Fcitx from loading this schema.
+    - ascii_composer
+    - recognizer
+    - predictor
+    - key_binder
+    - speller
+    - punctuator
+    - selector
+    - navigator
+    # 九宫拾音：**保持原包的 express_editor**。音节候选只覆盖「首音节那几位数字」
+    # （candidate.end < 段 end），引擎的 OnSelect 会把段截断成 partial 选择
+    # （Segment::Close()），于是不会自动提交，select_notifier 来得及改写 input；
+    # 而词典候选照旧覆盖整段、照旧一按即上屏。
+    # 详见 PORTING.md「为什么不用 fluid_editor」。
+    - express_editor
+  segmentors:
+    - ascii_segmentor
+    - lua_segmentor@*t9_default_abbreviation_segmentor
+    - matcher
+    - abc_segmentor
+    - punct_segmentor
+    - fallback_segmentor
+  translators:
+    # 九宫拾音：纯数字段的首音节候选。放在 script_translator 之前，保证候选顺序
+    # 是「音节候选 → 词典候选」（候选 quality 也统一给 100，双保险）。
+    - lua_translator@*t9_syllable
+    - predict_translator
+    - punct_translator
+    - script_translator
+    - script_translator@t9_default_abbreviation
+    - script_translator@t9_abbreviation
+    - lua_translator@*date_translator # 时间、日期、星期
+    - table_translator@custom_phrase # 自定义短语 custom_phrase_t9.txt
+    - table_translator@melt_eng     # 英文输入
+    - lua_translator@*calc_translator    # 计算器
+    - lua_translator@*force_gc           # 暴力 GC
+  filters:
+    - simplifier@emoji # Emoji
+    - simplifier@prediction_simplify # predict.db is Traditional; normalize before output policy.
+    - simplifier@traditionalize # 简繁切换
+    # 九宫拾音：把音节候选的 end 缩到「首音节末尾」（放在最后，不动其它候选）。
+    # 它保证点选音节时走 librime 的 partial 选择：不提交整段、select_notifier 才改得动 input。
+    - lua_filter@*t9_syllable_filter
+    # 九宫拾音：这里**不能**有 uniquifier。音节候选 text 留空（零泄漏方案），
+    # uniquifier 会把它们当成重复候选合并成一个，导致无法逐个点选。
+    # 代价：词典候选之间不再按 text 去重（见 PORTING.md「已知行为变化」）。
+    # - uniquifier # 去重
+
+predictor:
+  db: predict.db
+  # Keep the engine pool bounded while leaving enough results for the app's measured paging.
+  max_candidates: 80
+  max_iterations: 0
+
+prediction_simplify:
+  option_name: prediction
+  opencc_config: t2s.json
+  tips: none
+  tags: [ prediction ]
+
+calculator:
+  prefix: =
+  show_prefix: true
+
+# 处理符合特定规则的输入码，如网址、反查
+recognizer:
+  import_preset: default                # 从 default.yaml 继承通用的
+  patterns:                             # 再增加方案专有的：
+    calculator: "^=.+"                 # 响应 lua_translator@*calc_translator，计算器。前缀设定项 calculator/prefix
+    # Explicit abbreviation prefixes use a separate prism so raw T9 digits
+    # never pay for expansion. i/u/v cannot begin a Mandarin Pinyin syllable.
+    t9_abbreviation: "^(?:[a-z2-9]+')*(?:[zcs]h|[a-hj-tw-z])'[a-z2-9']*$"
+
+translator:
+  prism: t9
+  spelling_hints: 100
+  always_show_comments: true   # 第一行显示预测候选的拼音（带分词）
+  comment_format:             # 保留拼读作为 comment，供第一行 preedit 显示
+    - xform/^(.+)$/$1/
+  # dictionary_exclude: [肏屄, 鸡巴]  # 如有屏蔽 NSFW 词汇需求 librime >= 1.14.0 等价于从 .dict.yaml 中删除对应词条，但不影响组句和用户词库。
+
+t9_abbreviation:
+  tag: t9_abbreviation
+  dictionary: rime_ice
+  prism: t9_abbreviation
+  enable_completion: false
+  enable_word_completion: false
+  enable_user_dict: false
+  initial_quality: -1
+  max_homophones: 1
+  max_sentences: 1
+  spelling_hints: 100
+  always_show_comments: true
+  comment_format:
+    - xform/^(.+)$/$1/
+
+t9_default_abbreviation:
+  tag: t9_default_abbreviation
+  dictionary: rime_ice
+  prism: t9_default_abbreviation
+  enable_completion: false
+  enable_word_completion: false
+  enable_user_dict: false
+  initial_quality: -2
+  max_homophones: 1
+  max_sentences: 1
+  spelling_hints: 100
+  always_show_comments: true
+  comment_format:
+    # This path represents one default initial per key. Keeping full syllables
+    # would make the app preview letters the user never selected.
+    - xform/(^|[ '])([a-z])[a-z]*/$1$2/
+
+# 自定义短语：custom_phrase_t9.txt
+# ⚠️ 编码要用数字
+custom_phrase:
+  dictionary: ""
+  user_dict: custom_phrase_t9
+  db_class: stabledb
+  enable_completion: false
+  enable_sentence: false
+  initial_quality: 99
+
+# 九宫格标点符号
+punctuator:
+  half_shape:
+    # 1键：中文标点符号列表（先逗号后句号）
+    "1": ["，", "。", "？", "！", "、", "：", "；", "……", "——", "～"]
+    # *键：暂不处理（中文模式）
+    # "*": []
+    "@": [1, "@", ！, ：, 、, ……, ～]
+    "#": [0, "#", "$", "%", "^", "&", "*", "(", ")"]
+  # 英文模式（ascii_mode）下的标点（先逗号后句号）
+  ascii_style:
+    half_shape:
+      "1": [",", ".", "?", "!", "'", '"', "-", "@", "/", ":"]
+
+# 按键绑定
+key_binder:
+  import_preset: default  # 继承默认配置
+  bindings:
+    # 1键分词
+    - { when: has_menu, accept: 1, send: apostrophe }
+    # 候选词翻页：上下键
+    - { when: has_menu, accept: Up, send: Page_Up }
+    - { when: has_menu, accept: Down, send: Page_Down }
+    # 候选词选择：左右键 -> 映射到Up/Down（selector组件使用Up/Down选择）
+    - { when: has_menu, accept: Left, send: Up }
+    - { when: has_menu, accept: Right, send: Down }
+
+speller:
+  alphabet: zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA9876543210=
+  initials: zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA9876543210=
+  # 九宫拾音：与 rime_ice.schema.yaml 同值（原本靠 __include 继承，这里显式写出）。
+  # 音节改写后的输入形如 zhe'43，必须让撇号继续作为音节分隔符被 prism 接受。
+  delimiter: " '"
+  algebra:
+    # Super abbreviation is intentionally omitted: a T9 digit represents three
+    # or four initials, which makes librime explore an unbounded sentence graph.
+    - derive/^([nl])ve$/$1ue/
+    - derive/^([jqxy])u/$1v/
+    - derive/un$/uen/
+    - derive/ui$/uei/
+    - derive/iu$/iou/
+    - derive/([aeiou])ng$/$1gn/
+    - derive/([dtngkhrzcs])o(u|ng)$/$1o/
+    - derive/ong$/on/
+    - derive/ao$/oa/
+    - derive/([iu])a(o|ng?)$/a$1$2/
+    # ### 九宫格数字映射
+    - derive/[abc]/2/
+    - derive/[def]/3/
+    - derive/[hgi]/4/
+    - derive/[jkl]/5/
+    - derive/[omn]/6/
+    - derive/[pqrs]/7/
+    - derive/[tuv]/8/
+    - derive/[wxyz]/9/

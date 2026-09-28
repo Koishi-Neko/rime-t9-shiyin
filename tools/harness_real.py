@@ -1,0 +1,428 @@
+# -*- coding: utf-8 -*-
+"""真实手机包 t9.schema.yaml 的无头回归 harness
+
+复用 harness.py 的 ctypes 层（小狼毫 rime.dll / librime + librime-lua），在沙箱用户目录里
+编译**真实的 rime-ice-t9-phone 包**（真实 rime_ice 词典），对比：
+
+  base  变体：原包原样（移植前基线）
+  port  变体：原包 + 本项目移植后的 t9.schema.yaml / lua
+
+用法：
+    python harness_real.py all   --variant port      # 部署 + 跑场景（推荐）
+    python harness_real.py all   --variant base      # 移植前基线
+    python harness_real.py deploy --variant port     # 只编译
+    python harness_real.py run    --variant port --mode empty
+
+绝不动 %APPDATA%\\Rime，不跑 WeaselDeployer。沙箱、日志、编译产物全部落在工作目录里
+（默认是原型工程旁边：`../rime-lexicon/t9-syllable-prototype/out/realtest/`），
+不写进本仓库。路径可用环境变量覆盖：
+
+    T9_REPO        本仓库根目录（默认：本脚本的上一级）
+    T9_WORKSPACE   工作目录，放沙箱用户目录/日志/原包副本（默认见上）
+    T9_PKG         解压后的手机包目录（默认 $T9_WORKSPACE/pkg/rime-ice-t9-phone-main）
+    T9_TRANSCRIPTS 转录输出目录（默认：原型工程的 transcripts/）
+"""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.stdout.reconfigure(encoding="utf-8")
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import harness as H  # noqa: E402  （ctypes / RimeApi / Rime / keysym 全在这一层）
+
+REPO = Path(os.environ.get("T9_REPO", HERE.parent))
+PROTOTYPE = REPO.parent / "rime-lexicon" / "t9-syllable-prototype"
+ROOT = Path(os.environ.get("T9_WORKSPACE", PROTOTYPE / "out" / "realtest"))
+PKG = Path(os.environ.get("T9_PKG", ROOT / "pkg" / "rime-ice-t9-phone-main"))
+LOG_DIR = ROOT / "log"
+TRANSCRIPT_DIR = Path(os.environ.get("T9_TRANSCRIPTS", PROTOTYPE / "transcripts"))
+
+SCHEMA_ID = "t9"
+
+H.LOG_DIR = LOG_DIR  # Rime.__init__ 用它建日志目录
+
+
+def sandbox(variant: str) -> Path:
+    return ROOT / f"user_{variant}"
+
+
+def build_sandbox(variant: str, keep_build: bool) -> Path:
+    """把真实包拷进沙箱；port 变体再覆盖本项目的 t9.schema.yaml 与 lua。"""
+    dst = sandbox(variant)
+    build = dst / "build"
+    if keep_build and build.exists():
+        shutil.rmtree(build)
+    if dst.exists():
+        shutil.rmtree(dst)
+    dst.mkdir(parents=True)
+    shutil.copytree(PKG, dst, dirs_exist_ok=True)
+
+    if variant == "port":
+        shutil.copy2(REPO / "schema" / "t9.schema.yaml", dst / "t9.schema.yaml")
+        for lua in sorted((REPO / "lua").glob("*.lua")):
+            shutil.copy2(lua, dst / "lua" / lua.name)
+    return dst
+
+
+def cmd_deploy(variant: str) -> int:
+    dst = build_sandbox(variant, keep_build=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log = LOG_DIR / "t9_debug.log"
+    if log.exists():
+        log.unlink()
+    os.environ["T9_LOG"] = str(log)
+    print(f"== 沙箱用户目录：{dst}")
+    t0 = time.time()
+    r = H.Rime(dst, deploy_mode=True)
+    ok = H.bind(r.api, "deploy", ctypes.c_int)()
+    print(f"== deploy 返回 {ok}，耗时 {time.time() - t0:.1f}s")
+    table = dst / "build" / "rime_ice.table.bin"   # t9 的 translator/dictionary 是 rime_ice，表在 rime_ice.table.bin
+    prism = dst / "build" / f"{SCHEMA_ID}.prism.bin"
+    for f in (prism, table):
+        print(f"== {f.name}: {'%d bytes' % f.stat().st_size if f.exists() else '缺失!'}")
+    if not (prism.exists() and table.exists()):
+        print("[FAIL] 编译产物缺失，日志尾部：")
+        for f in sorted(LOG_DIR.glob("*.log")):
+            print(f"--- {f.name} ---")
+            print(f.read_text(encoding="utf-8", errors="replace")[-3000:])
+        r.close()
+        return 2
+    r.close()
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# 场景
+# ---------------------------------------------------------------------------
+def hdr(title: str) -> None:
+    print()
+    print("=" * 78)
+    print(title)
+    print("=" * 78)
+
+
+def show_candidates(r: H.Rime, limit: int = 30) -> None:
+    cands = r.candidates()
+    print(f"   候选 {len(cands)} 条：")
+    for i, (t, c) in enumerate(cands[:limit]):
+        mark = "*" if t == "" else " "
+        print(f"     [{i:2d}]{mark} text={t!r:<12} comment={c!r}")
+    return cands
+
+
+def is_syllable_cand(t: str, c: str) -> bool:
+    """音节候选的判定：comment 形如 "zhe'43 | 后续(1)：ge" / "zheng | 完整：zheng"
+    （empty 模式下 text 为空，text 模式下 text 是精确拼音 —— 两种模式都靠 comment 识别）"""
+    import re
+    return re.match(r"^[a-z]+('[0-9]*)? \| ", c) is not None
+
+
+def apply_mode(r: H.Rime, mode: str) -> None:
+    """empty（默认，零泄漏）| text（候选 text 显示拼音，便于人眼核对）"""
+    r.set_option("t9_syllable_text", mode == "text")
+
+
+def split_cands(cands) -> tuple[list, list]:
+    syl, rest = [], []
+    for c in cands:
+        (syl if is_syllable_cand(*c) else rest).append(c)
+    return syl, rest
+
+
+def digit_segmentations(digits: str, codes: set[str]) -> list[str]:
+    """Python 参考实现：用包里的数字码集合枚举切分（与 lua 侧对照）"""
+    out: list[str] = []
+
+    def dfs(pos: int, acc: list[str]):
+        if len(out) >= 200 or pos == len(digits):
+            if pos == len(digits):
+                out.append("'".join(acc))
+            return
+        for end in range(pos + 1, len(digits) + 1):
+            code = digits[pos:end]
+            if code in codes:
+                dfs(end, acc + [code])
+
+    dfs(0, [])
+    return out
+
+
+def load_package_codes() -> set[str]:
+    text = (PKG / "lua" / "t9_default_abbreviation_segmentor.lua").read_text(encoding="utf-8")
+    body = text.split("local FULL_PINYIN_CODES = [[", 1)[1].split("]]", 1)[0]
+    return set(body.split())
+
+
+# ---------------------------------------------------------------------------
+# 回归场景（base / port 共用；port 额外跑音节链路）
+# ---------------------------------------------------------------------------
+REGRESSION_INPUTS = [
+    ("94343", "这个"),      # zhe ge（移植前实测首候选就是它）
+    ("74264", "上"),        # shang / qiang
+    ("98", "无"),           # wu / yu / xu / zu
+    ("636", "们"),          # men / nen
+    ("26426", "拨号"),      # bo hao
+    ("48268", "花木"),      # hua mu
+]
+
+
+def scenario_regression(r: H.Rime, transcript: list[str], tag: str) -> None:
+    hdr(f"[{tag}] 回归：常见数字串直接出词典候选（普通九宫格输入不受影响）")
+    for digits, want in REGRESSION_INPUTS:
+        r.clear()
+        r.set_input(digits)
+        cands = show_candidates(r)
+        texts = [t for t, _ in cands]
+        hit = any(want in t for t in texts)
+        first_dict = next((t for t, c in cands if not is_syllable_cand(t, c)), None)
+        print(f"   input={digits} 期望含 {want!r} -> {hit}；首个词典候选 = {first_dict!r}")
+        transcript.append(
+            f"[{tag}] input={digits} 想要={want} 命中={hit} 首个词典候选={first_dict!r} "
+            f"前8候选={texts[:8]}")
+
+
+def scenario_delimiter(r: H.Rime, transcript: list[str], tag: str) -> None:
+    """撇号分隔符探针：zhe'43 能否解析成「这」+ 数字43（delimiter 是否生效）"""
+    hdr(f"[{tag}] 撇号分隔符探针（speller/delimiter: \" '\"）")
+    for text in ("zhe'43", "zhe43", "zhe'ge", "zhege"):
+        r.clear()
+        r.set_input(text)
+        cands = r.candidates()
+        print(f"   input={text!r} -> {len(cands)} 条：{[t for t, _ in cands[:6]]}")
+        transcript.append(f"[{tag}] probe input={text!r} -> {len(cands)} 条 {[t for t, _ in cands[:6]]}")
+
+
+def scenario_word_select(r: H.Rime, transcript: list[str], tag: str) -> None:
+    """点选词典候选是否照常上屏 —— fluid_editor 会不会吃掉「点词即上屏」"""
+    hdr(f"[{tag}] 点选词典候选是否仍然上屏（editor 回归关键）")
+    for digits, word in (("94343", "这个"), ("74264", "上")):
+        r.clear()
+        r.set_input(digits)
+        cands = r.candidates()
+        idx = next((i for i, (t, _) in enumerate(cands) if t == word), None)
+        if idx is None:
+            print(f"   {digits}: 候选里没有 {word!r}，跳过")
+            transcript.append(f"[{tag}] {digits} 没有 {word!r}，跳过")
+            continue
+        ok = r.select(idx)
+        comm = r.take_commit()
+        print(f"   {digits} 点选 #{idx}({word}) select={ok} commit={comm!r} input={r.input()!r}")
+        transcript.append(f"[{tag}] {digits} 点选词典候选 {word} -> commit={comm!r} input={r.input()!r}")
+
+
+def scenario_space(r: H.Rime, transcript: list[str], tag: str) -> None:
+    """空格键行为：高亮的是音节候选时=锁定音节；高亮的是词候选时=上屏"""
+    hdr(f"[{tag}] 空格键行为")
+    r.clear()
+    r.set_input("94343")
+    cands = r.candidates()
+    print(f"   空格前 input={r.input()!r} 首候选={cands[0] if cands else None}")
+    consumed = r.key("space")
+    comm = r.take_commit()
+    after = r.input()
+    print(f"   space#1: consumed={consumed} input={after!r} commit={comm!r} preedit={r.preedit()!r}")
+    transcript.append(
+        f"[{tag}] 94343 + space#1 -> consumed={consumed} input={after!r} commit={comm!r} "
+        f"preedit={r.preedit()!r}")
+    # 再接一次空格：此时高亮的是词候选，应当直接上屏（证明空格流程没被破坏）
+    consumed2 = r.key("space")
+    comm2 = r.take_commit()
+    print(f"   space#2: consumed={consumed2} input={r.input()!r} commit={comm2!r}")
+    transcript.append(f"[{tag}] space#2 -> consumed={consumed2} commit={comm2!r} input={r.input()!r}")
+    r.clear()
+    r.set_input("94343")
+    consumed = r.key("Return")
+    comm = r.take_commit()
+    print(f"   Return: consumed={consumed} input={r.input()!r} commit={comm!r}")
+    transcript.append(f"[{tag}] 94343 + Return -> consumed={consumed} commit={comm!r}")
+
+
+def scenario_syllable_flow(r: H.Rime, transcript: list[str], mode: str) -> None:
+    hdr(f"[port] 音节候选：94343 → 点选 zhe → input=zhe'43 → 词典候选接力（mode={mode}）")
+    r.clear()
+    r.set_input("94343")
+    print(f"   input={r.input()!r}  preedit={r.preedit()!r}")
+    cands = show_candidates(r)
+    syl, rest = split_cands(cands)
+    print(f"\n   >> 音节候选 {len(syl)} 条：{[(c[1].split(' |')[0], c[0]) for c in syl]}")
+    print(f"   >> 词典候选 {len(rest)} 条：{[c[0] for c in rest[:8]]}")
+    transcript.append(
+        f"[port:{mode}] input=94343 音节候选({len(syl)})={[(c[1].split(' |')[0], c[0]) for c in syl]} "
+        f"词典候选({len(rest)})={[c[0] for c in rest[:8]]}")
+
+    idx = next((i for i, (t, c) in enumerate(cands)
+                if is_syllable_cand(t, c) and c.startswith("zhe'")), None)
+    if idx is None:
+        print("   [FAIL] 找不到 zhe 音节候选")
+        transcript.append(f"[port:{mode}] FAIL: 找不到 zhe 音节候选")
+        return
+    print(f"\n   点选 #{idx}（zhe）…")
+    ok = r.select(idx)
+    after = r.input()
+    comm = r.take_commit()
+    print(f"   select()={ok}  input={after!r}  preedit={r.preedit()!r}  commit={comm!r}")
+    cands2 = show_candidates(r)
+    texts2 = [t for t, _ in cands2]
+    relay = any("这个" == t for t in texts2)
+    rewrite_ok = after == "zhe'43"
+    print(f"\n   >> 改写成功? {rewrite_ok}   接力出「这个」? {relay}   无泄漏? {comm == ''}")
+    transcript.append(
+        f"[port:{mode}] 94343 --select(zhe)--> input={after!r} commit={comm!r} "
+        f"rewrite_ok={rewrite_ok} relay_ok={relay} leak={comm!r}")
+    # 接力之后再点词候选，验证「音节锁定 → 选词上屏」整条链路
+    widx = next((i for i, (t, _) in enumerate(cands2) if t == "这个"), None)
+    if widx is not None:
+        r.select(widx)
+        comm2 = r.take_commit()
+        print(f"   点选 #{widx}（这个）-> commit={comm2!r}")
+        transcript.append(f"[port:{mode}] 接力后点选 这个 -> commit={comm2!r}")
+
+
+def scenario_remedy(r: H.Rime, transcript: list[str]) -> None:
+    """补救路径：关掉 filter 的 partial 处理（整段候选 + express_editor 自动提交），
+    靠 commit_notifier 暂存的输入继续改写。"""
+    hdr("[port] 补救路径：t9_syllable_no_partial 打开后点选音节候选")
+    r.set_option("t9_syllable_no_partial", True)
+    r.clear()
+    r.set_input("94343")
+    cands = r.candidates()
+    idx = next((i for i, (t, c) in enumerate(cands)
+                if is_syllable_cand(t, c) and c.startswith("zhe'")), None)
+    if idx is None:
+        print("   [FAIL] 找不到 zhe 音节候选")
+        transcript.append("[port] 补救路径 FAIL: 找不到 zhe 音节候选")
+    else:
+        r.select(idx)
+        comm = r.take_commit()
+        after = r.input()
+        print(f"   点选 #{idx}(zhe) -> commit={comm!r} input={after!r} preedit={r.preedit()!r}")
+        transcript.append(f"[port] 补救路径 点选 zhe -> commit={comm!r} input={after!r}")
+    r.set_option("t9_syllable_no_partial", False)
+
+
+def scenario_single_split(r: H.Rime, transcript: list[str]) -> None:
+    hdr("[port] 切分门槛：单一切分不出音节候选（直接出词典候选）")
+    codes = load_package_codes()
+    for digits in ("98", "94", "9434", "2246", "436"):
+        segs = digit_segmentations(digits, codes)
+        r.clear()
+        r.set_input(digits)
+        cands = r.candidates()
+        syl, rest = split_cands(cands)
+        print(f"\n   input={digits}：切分 {len(segs)} 种 {segs[:6]}"
+              f"{' ...' if len(segs) > 6 else ''}")
+        print(f"     -> 音节候选 {len(syl)} 条 / 词典候选 {len(rest)} 条；前5候选={[t for t, _ in cands[:5]]}")
+        transcript.append(
+            f"[port] input={digits} 切分数={len(segs)} 音节候选={len(syl)} "
+            f"词典候选={len(rest)} 前5候选={[t for t, _ in cands[:5]]}")
+
+
+def scenario_processor(r: H.Rime, transcript: list[str], tag: str) -> None:
+    hdr(f"[{tag}] 兜底：Tab 循环切分在真实 schema 下工作")
+    r.clear()
+    r.set_input("94343")
+    print(f"   起始 input={r.input()!r}")
+    seen = []
+    for i in range(8):
+        if not r.key("Tab"):
+            print(f"   Tab 第 {i + 1} 次未被消费（process_key 返回 0）")
+            break
+        seen.append(r.input())
+        print(f"   Tab #{i + 1} -> input={r.input()!r}  preedit={r.preedit()!r}")
+    transcript.append(f"[{tag}] Tab 循环结果：{seen}")
+    # Tab 之后必须还能正常继续输入（不影响普通键）
+    r.clear()
+    for ch in "94343":
+        r.key(ch)
+    print(f"   逐键敲 94343 -> input={r.input()!r}")
+    transcript.append(f"[{tag}] 逐键敲 94343 -> input={r.input()!r} 候选={[t for t, _ in r.candidates()[:6]]}")
+
+
+def cmd_run(variant: str, mode: str) -> int:
+    dst = sandbox(variant)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log = LOG_DIR / "t9_debug.log"
+    if log.exists():
+        log.unlink()
+    os.environ["T9_LOG"] = str(log)
+    os.environ["T9_CORE_LOG"] = str(log)
+
+    r = H.Rime(dst)
+    print(f"== librime {r.version}，当前方案 = {r.schema()}")
+    if r.schema() != SCHEMA_ID:
+        r.select_schema(SCHEMA_ID)
+        print(f"== 切换到方案 = {r.schema()}")
+
+    transcript: list[str] = [f"# variant={variant} mode={mode} librime={r.version}"]
+    try:
+        if variant == "port":
+            apply_mode(r, mode)
+        scenario_regression(r, transcript, variant)
+        scenario_delimiter(r, transcript, variant)
+        scenario_word_select(r, transcript, variant)
+        scenario_space(r, transcript, variant)
+        if variant == "port":
+            scenario_syllable_flow(r, transcript, mode)
+            scenario_remedy(r, transcript)
+            scenario_single_split(r, transcript)
+        scenario_processor(r, transcript, variant)
+    finally:
+        r.close()
+
+    print()
+    print("=" * 78)
+    print("LUA 内部日志（尾部）")
+    print("=" * 78)
+    if log.exists():
+        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+        for line in lines[-60:]:
+            print("   " + line)
+
+    transcript.append(f"# lua 日志：{log}")
+    TRANSCRIPT_DIR.mkdir(parents=True, exist_ok=True)
+    if variant == "port" and mode == "empty":
+        name = "run_realpackage.txt"          # 最终推荐模式（零泄漏）
+    elif variant == "port":
+        name = f"run_realpackage_{mode}.txt"
+    else:
+        name = "run_realpackage_base.txt"
+    out = TRANSCRIPT_DIR / name
+    out.write_text("\n".join(transcript) + "\n", encoding="utf-8")
+    print(f"\n== 场景摘要已写入 {out}")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("cmd", choices=["all", "deploy", "run"], nargs="?", default="all")
+    ap.add_argument("--variant", choices=["base", "port"], default="port")
+    ap.add_argument("--mode", choices=["text", "empty"], default="empty")
+    args = ap.parse_args()
+
+    if args.cmd == "deploy":
+        return cmd_deploy(args.variant)
+    if args.cmd == "run":
+        return cmd_run(args.variant, args.mode)
+
+    rc = cmd_deploy(args.variant)
+    if rc:
+        return rc
+    print("\n" + "#" * 78)
+    print("# 另起进程跑场景（deployer 与 engine 分进程）")
+    print("#" * 78)
+    return subprocess.call([sys.executable, str(Path(__file__).resolve()), "run",
+                            "--variant", args.variant, "--mode", args.mode])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
