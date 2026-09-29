@@ -206,13 +206,34 @@ jp, grease, rusa, korea, lation, yinbiao, yanwenzi, combing, emoji_full, tabs(�
 - [ ] 底部固定键条（返回/空格/退格/回车/剪贴板/更多）位置与功能不变
 - [ ] 「更多」tab 仍在最后一页，点它能看到全部 tab 列表
 
-**E. 全局**
+**E. 功能⑥ 剪贴板/123 换位**
+- [ ] 九宫主键盘底行空格左侧是 `123`，单击进九宫数字页，输入中按它先清编码再进数字页
+- [ ] 右栏第 2 行（退格下方）是「剪贴板」，单击直开剪贴板，长按开「更多符号」面板
+- [ ] 剪贴板面板里原有功能（剪贴/收藏）正常，返回主键盘正常
+
+**F. 全局**
 - [ ] 主题名显示为「九宫拾音」，作者行显示 `SivanLaai / 九宫拾音项目改`
 - [ ] t9 / 九宫方案切换正常（`t9`、`t9_stroke`、`t9_zhuyin`、`clover_jiugong`、`terra_jiugong` 都 include 了同一个九宫布局，
       改一处全部生效）
 - [ ] 切换配色、切换中英文、横屏、剪贴板、主题设置等原有按键都正常
 
-## 7. 已知不确定点（如果验收时发现异常，先看这里）
+## 7. 功能⑥ 九宫主键盘「剪贴板/符」与「123」换位（仿百度布局）
+
+改的是 `preset_keyboards/luna_jiugong`（t9 等 7 个 id 都 include 它）：
+
+- **原右栏第 2 行的 `123` 键** → 改为 **剪贴板**：`click: liquid_keyboard_clipboard`（单击直开剪贴板），
+  `long_click: liquid_keyboard_switch`（长按开「更多符号」面板），`composing: Escape` 保留（输入中按它先清编码）。
+  键宽仍为 `*NUM_SYM_W`，字号 14 以容纳 3 个字。
+- **原底行第 2 列的「剪贴板/符」键**（单击 `liquid_keyboard_switch` 基本无效、只有长按才能开剪贴板） → 改为 **`123`**：
+  `click: K_jiugongNumber`、`composing: Escape`，占据底行原位置（空格左侧，仿百度九宫底行 `符 123 空格 中/英` 布局中 123 的位置）。
+- 换完后九宫底行为：`！`（左栏）｜ `123` ｜ 空格 ｜ `中` ｜ `Enter`；右栏为：退格 ｜ 剪贴板 ｜ 编辑 ｜ Enter。
+- 「更多符号」入口没有丢：剪贴板键长按即是；26 键的「?123 / 更多符号」键也未动。
+- **未做**：九宫笔画键盘 `luna_bihua` 的同型布局保持原样（只按本次需求改了九宫主键盘）。
+- **未做（经评估不可行）**：左栏标点列 / 数字页运算符列改成「滚动栏」。Trime 的主题 YAML 只支持固定网格按键，
+  键盘本体没有可滚动的键列容器；可滚动的是 liquid_keyboard 液体键盘面板（独立组件），无法嵌进主键盘侧栏。
+  目前侧栏「单击+长按+四向滑动」每键已覆盖 6 个符号，是主题引擎内能达到的上限。
+
+## 8. 已知不确定点（如果验收时发现异常，先看这里）
 
 1. **全角直发的符号**（`……` `“` `”` `《` `》` `——` `·`）是直接送字符，不依赖方案的标点映射；
    本主题 `cn` 符号面板里的同类全角键一直这么用，所以预期没问题。若某个方案把它们吞掉，可以改成 ASCII 形式
@@ -223,3 +244,127 @@ jp, grease, rusa, korea, lation, yinbiao, yanwenzi, combing, emoji_full, tabs(�
    需要额外设置 `hint` 字段（本次没加，避免和现有的键面小字位置打架）。
 4. **`swipe_down` 落在最后一行键上**（`defaultVJ5`/`defaultVJ6` 的删除键）在个别系统手势设置下可能不好触发，
    如果你手机上按不出来，把它改成 `long_click: Candidate_switch1` 即可（会牺牲长按连删）。
+
+## 9. 带圈数字 ⓪①②③…⑳（2026-09-30）
+
+主题层只动两处，都不改键盘布局，只补符号：
+
+1. **列表 tab（`list`，type SINGLE）** —— `keys` 开头补上 `⓪` 与 `⑪`-`⑳`（原来只有 `①`-`⑩`，
+   所以面板里点不出 `⑪` 及以后）。现在整页以 `⓪①②③…⑳` 打头。
+   这类「直接送字符」的键是主题里最稳的写法：不依赖方案前缀，单击即插入。
+2. **符号表 tab（`symbollist`，type SYMBOL）** —— 在 `十: '/10'` 后面新增 `圆数: 'vszq'`。
+
+> 拼音/九宫直出（打字出 ⑥）走的是词库，不在主题里：见 `schema/circled_digits.dict.yaml`。
+
+⚠️ 顺带发现的**既有问题（本次只加不修，等你决定）**：`symbollist` 那一页 46 个分类键用的是源主题的
+`/xx` 前缀（`/fh` `/sx` `/1` `/10` …），那是**原版 Rime symbols.yaml 的前缀**
+（librime 自带 `data/symbols.yaml`：`recognizer/patterns/punct: '^/([0-9]0?|[A-Za-z]+)$'`）；
+而本手机包用的是雾凇的 **`v` 前缀**（包内 `rime_ice.schema.yaml`：`punct: "^v([0-9]|10|[A-Za-z]+)$"`，
+键名是 `v1`…`v10` / `vfh`…）。librime 的 punct_translator 是拿**整串输入**去 `punctuator/symbols` 里查键的，
+`/6` 在 `symbols_v.yaml` 里没有对应条目，所以点这些键出不来东西。真包实测（`tools/harness_real.py`）：
+
+```
+input='v6'  -> 18 条候选，第 8 条是 ⑥
+input='vszq'-> 72 条候选，⓪①②…⑳ 全在
+input='/6'  -> 2387 条候选，一个带圈数字都没有（其余 /xx 键同理）
+```
+
+新增的 `圆数` 键用的是本包实际生效的前缀（`vszq`），能出整组 ⓪①②…⑳。
+若要把整页修好：把 `symbollist` 里所有 `/xx` 换成 `vxx`（`/1`→`v1`、`/10`→`v10`、`/fh`→`vfh`、
+`/pjm`→`vpjm` 等，键名以 `symbols_v.yaml` 里实际存在的为准）。本次没动它，避免一次改 46 个键面。
+
+## 10. 底行「符」键 + 符号表 /xx 修好 + 带圈数字↔keycap 权重对调（2026-09-30）
+
+### 10.1 底行最左＝「符」（复刻百度九宫底行：符｜123｜空格｜中｜Enter）
+
+- `preset_keys` 新增一条：
+
+  ```yaml
+  liquid_keyboard_symbol: {label: 符, send: function, command: liquid_keyboard, option: "常用"}
+  ```
+
+  与 `liquid_keyboard_clipboard` **同款机制**（`send: function` + `command: liquid_keyboard` + `option: tab 名`，
+  单击直接执行命令并切到那个 tab）。**没有**再用旧的 `liquid_keyboard_switch` ——
+  它是 `{toggle: _liquid_keyboard, send: Mode_switch, states: [...]}`，用户在底行位置单击无效就是它造成的。
+  `option` 取液体键盘第一个分类「常用」（功能⑤重排后的 `history` tab）。
+- `luna_jiugong` 底行**最左**那个键（原第 4 个左栏标点键 `！`，行内容
+  `{click: "!", label: " ！", ..., swipe_left: "《", ..., composing: Escape}`）整条换成：
+
+  ```yaml
+  - {click: liquid_keyboard_symbol, label: "符", width: *NUM_SYM_W, long_click: Menu, composing: Escape, key_symbol_offset_x: 0, key_back_color: szgnb, hilited_key_back_color: szgnh, key_text_size: 16}
+  ```
+
+  样式沿用底行功能键（`szgnb/szgnh`）、`composing: Escape` 保留（组字时该键变 Esc 清编码）、长按 `Menu`。
+- 改完底行 = `符 ｜ 123 ｜ 空格 ｜ 中 ｜ Enter`；**左栏标点列只剩 3 键**（`，` `。` `？`），
+  第 4 行左不再有标点键 —— 刻意如此，配合 fork 侧栏只覆盖上 3 行。
+- **`！` 没丢**：同排左栏 `？` 键**上滑**即 `！`（源主题本来的写法，未改），液体键盘「中文」页里也有。
+- 离线校验：`python -c "import yaml; yaml.safe_load(open('theme/shiyin.trime.yaml', encoding='utf-8'))"` 通过；
+  `luna_jiugong` 20 个键逐个打印确认（顺序：`，`｜123/ABC/DEF｜退格｜`。`｜GHI/JKL/MNO｜剪贴板｜`？`｜PQRS/TUV/WXYZ｜编辑｜**符**｜123｜空格｜中｜回车）。
+- **待真机验收**：点「符」是否直开符号面板。若嫌「常用」(HISTORY) 页空，把 preset key 的
+  `option` 改成 `"中文"`（全角标点）或 `"特殊"` 即可。
+
+### 10.2 符号表 tab：46 个 `/xx` 空转键全部改成 `vxx`（修 §9 记的问题）
+
+逐键对照**包内 `symbols_v.yaml` 实际存在的 264 个 `v*` 条目**：49 个分类键 **49/49 都有对应**，
+没有需要改成「最接近的有效键」的，也没有需要删掉的（§9 里担心的两种情况都没发生）。
+
+| 旧 | 新 | 旧 | 新 | 旧 | 新 |
+|---|---|---|---|---|---|
+| `/fh` | `vfh` | `/tt` | `vtt` | `/jm` | `vjm` |
+| `/dn` | `vdn` | `/xz` | `vxz` | `/pjm` | `vpjm` |
+| `/xq` | `vxq` | `/xh` | `vxh` | `/hw` | `vhw` |
+| `/mj` | `vmj` | `/fk` | `vfk` | `/xl` | `vxl` |
+| `/sz` | `vsz` | `/jh` | `vjh` | `/xld` | `vxld` |
+| `/pk` | `vpk` | `/jt` | `vjt` | `/lm` | `vlm` |
+| `/tq` | `vtq` | `/sx` | `vsx` | `/lmd` | `vlmd` |
+| `/yy` | `vyy` | `/sb` | `vsb` | `/ey` | `vey` |
+| `/bg` | `vbg` | `/xb` | `vxb` | `/eyd` | `veyd` |
+| `/lssg` | `vlssg` | `/dw` | `vdw` | `/bq` | `vbq` |
+| `/1`-`/9` | `v1`-`v9` | `/hb` | `vhb` | `/fs` | `vfs` |
+| `/0` | `v0` | `/py` | `vpy` | `/bd` | `vbd` |
+| `/10` | `v10` | `/zy` | `vzy` | `/pp` | `vpp` |
+| （`圆数` 上次已是 `vszq`） | — | | | `/bdz` | `vbdz` |
+
+规则就是「`v` + 原 `/` 后面的名字」，逐个在 `symbols_v.yaml` 里查过存在。
+
+`harness_real.py` 新增 `scenario_symbol_categories`，真包抽查 8 个分类键（**全部出符号，8/8 OK**）：
+
+```
+vfh （符号）  158 条：©、®、℗、℠、™、℡、℻、☇
+vdn （电脑）   43 条：❖、⌘、⌃、⌥、⎇、⇧、⇪、␣
+vxq （象棋）   12 条：♔、♕、♖、♗、♘、♙、♚、♛
+vsx （数学）   49 条：±、÷、×、∈、∏、∑、－、＋
+v1  （一）     20 条：一、壹、¹、₁、Ⅰ、ⅰ、①、➀
+vjm （假名）   91 条：あ、ぁ、い、ぃ、う、ぅ、え、ぇ
+vszq（圆数）   72 条：⓪、①、②、③、④、⑤、⑥、⑦
+vbdz（竖标）   41 条：﹅、﹆、﹁、﹂、﹃、﹄、︙、︱
+```
+
+### 10.3 带圈数字 ↔ keycap 权重对调（手机侧口径）
+
+主题层不用改，但手机包的**词库**与 **opencc/emoji.txt** 都跟着桌面一起换了（同一份源文件 / 同一套改动）：
+详见 `schema/circled_digits.dict.yaml` 头部注释与 `知识信息库\更新日志.md`。
+要点：`1️⃣` 这类 keycap 是 `simplifier@emoji` 的**派生候选**（继承源候选的 quality），
+所以只能把 `opencc/emoji.txt` 里 11 行 `零	零 0️⃣`…`十	十 🔟` 摘掉、改用词库权重 100 提供，
+带圈数字则提到对应汉字的字频权重。手机 harness 实测（`94`/`548`/`726`）：①2→205 位、⑥53→10 位、③64→11 位对调完成。
+
+## 11. 主题去重：修「主题 shiyin 不可用」（2026-09-30 凌晨，根因排查自 fork 侧 JVM 复现）
+
+**症状**：装新 APK 后点「部署」→ 弹「主题"shiyin"不可用，已切换为……」。
+
+**根因**（fork 侧 `ThemeLoader` JVM 复现确证）：本主题文件自带 **78 组重复键**（首处 = `keyboard_height` 的
+`H`/`I`，31→38、32→39 行；另有 colors `21`、preset_color_schemes `flypy`、preset_keys 尾部整段重复粘贴等）。
+PyYAML / librime(yaml-cpp) 对重复键是「后者覆盖」不报错，所以 python 校验、桌面 harness、旧编译产物全都正常；
+而 Trime 主题加载器用的 **kaml 对重复键直接抛 DuplicateKeyException**——源文件路径静默回退后，
+新部署编译出的产物（`build/shiyin.trime.yaml`）同样带重复键、同样被 kaml 拒，两条路径一起失效 → 不可用。
+此前能用，是因为手机上一直跑着更早版本源文件编译出的旧产物；本次「部署」触发重编译，问题暴露。
+**这 78 处是基底主题（同文风）遗留，不是本轮任何改动引入**（git 历史三个快照一致）。
+
+**修复**：按「保留每组最后一次定义」（= librime/PyYAML 实际语义）删除前一次，生成去重版替换
+`theme/shiyin.trime.yaml`（302,334 B；原版备份 `theme/shiyin.trime.yaml.bak-dedup-*`）。
+验证：kaml parse 通过、`ThemeLoader.decodeAndReport` Success（69 键盘 / 284 preset_keys）、
+last-wins 深比较与原文完全一致、剩余重复键 0。检查/去重脚本：`知识信息库\.kimi-work` 外的
+`C:\Users\15263\.kimi-work\trime-sidebar\diag\dedupe_theme.py`（可对任何主题文件列出重复键并生成去重副本）。
+
+**已知**：去重后 Trime 的「源文件加载」路径仍会因主题里 `keys/@32/long_click` 这类带 `/` 的 patch 路径
+（ThemeDslExpander 不支持的 DSL 子集）静默回退到部署产物——这是既有行为，产物路径工作正常，不影响使用。

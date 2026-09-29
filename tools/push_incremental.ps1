@@ -1,5 +1,11 @@
-# 增量推送：主题/方案/lua 六个文件 → 手机 pinyin 目录（Trime 部署导入的源文件夹）
+# 增量推送：主题/方案/词库/lua/opencc 十个文件 → 手机 pinyin 目录（Trime 部署导入的源文件夹）
 # 用法（手机已用数据线连接并解锁）：powershell -File tools\push_incremental.ps1
+#
+# 词库那两个（rime_ice.dict.yaml = 挂载表、circled_digits.dict.yaml = 带圈数字 ⓪①…⑳ + keycap）
+# 与桌面端共用同一份源文件：rime-t9-shiyin\schema\ 下就是唯一来源，
+# 桌面用 rime-lexicon\install-rime-circled.ps1 从同一路径装，两边不会漂。
+# opencc\emoji.txt 是副本（摘掉了 11 行 keycap 派生 `零	零 0️⃣`…`十	十 🔟`），
+# 桌面侧由 install-rime-circled.ps1 对 %APPDATA%\Rime\opencc\emoji.txt 打同样的补丁（带备份、幂等）。
 #
 # 机制说明（2026-09-28 实证）：
 #   * Trime 3.3 点「部署」= 先从 SAF 源文件夹（本机 = pinyin/）导入覆盖 app 数据目录再编译，
@@ -20,10 +26,15 @@ if (-not $py) { Write-Output 'ERROR: 未找到 pinyin 文件夹'; exit 1 }
 $pyDir = $py.GetFolder
 $luaDir = ($pyDir.Items() | Where-Object { $_.Name -eq 'lua' }).GetFolder
 if (-not $luaDir) { Write-Output 'ERROR: pinyin 下无 lua 目录'; exit 1 }
+$openccDir = ($pyDir.Items() | Where-Object { $_.Name -eq 'opencc' }).GetFolder
+if (-not $openccDir) { Write-Output 'ERROR: pinyin 下无 opencc 目录'; exit 1 }
 
 $targets = @(
     @{ rel = 'theme\shiyin.trime.yaml';    dir = $pyDir },
     @{ rel = 'schema\t9.schema.yaml';      dir = $pyDir },
+    @{ rel = 'schema\rime_ice.dict.yaml';  dir = $pyDir },   # 挂载表（新增 - circled_digits）
+    @{ rel = 'schema\circled_digits.dict.yaml'; dir = $pyDir }, # 带圈数字 ⓪①②…⑳ + keycap（权重已对调）
+    @{ rel = 'opencc\emoji.txt';           dir = $openccDir }, # 摘掉 keycap 派生行的那份
     @{ rel = 'lua\t9_syllable.lua';        dir = $luaDir },
     @{ rel = 'lua\t9_syllable_core.lua';   dir = $luaDir },
     @{ rel = 'lua\t9_syllable_cycle.lua';  dir = $luaDir },

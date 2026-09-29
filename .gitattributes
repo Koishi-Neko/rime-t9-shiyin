@@ -1,0 +1,6 @@
+# rime 词典/符号表必须 LF（CRLF 会让 "..." 终止符失效、整表被 librime 跳过）
+*.dict.yaml text eol=lf
+opencc/*.txt text eol=lf
+*.schema.yaml text eol=lf
+*.trime.yaml text eol=lf
+lua/*.lua text eol=lf

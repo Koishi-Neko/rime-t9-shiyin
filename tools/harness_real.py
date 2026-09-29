@@ -56,8 +56,12 @@ def sandbox(variant: str) -> Path:
     return ROOT / f"user_{variant}"
 
 
+# port 变体用本仓库哪几个文件覆盖原包（名字 = 包内根目录的文件名）
+PORT_ROOT_FILES = ("t9.schema.yaml", "rime_ice.dict.yaml")
+
+
 def build_sandbox(variant: str, keep_build: bool) -> Path:
-    """把真实包拷进沙箱；port 变体再覆盖本项目的 t9.schema.yaml 与 lua。"""
+    """把真实包拷进沙箱；port 变体再覆盖本项目的方案 / 词库（含 schema/*.dict.yaml）与 lua。"""
     dst = sandbox(variant)
     build = dst / "build"
     if keep_build and build.exists():
@@ -68,7 +72,14 @@ def build_sandbox(variant: str, keep_build: bool) -> Path:
     shutil.copytree(PKG, dst, dirs_exist_ok=True)
 
     if variant == "port":
-        shutil.copy2(REPO / "schema" / "t9.schema.yaml", dst / "t9.schema.yaml")
+        for name in PORT_ROOT_FILES:
+            shutil.copy2(REPO / "schema" / name, dst / name)
+        for d in sorted((REPO / "schema").glob("*.dict.yaml")):
+            shutil.copy2(d, dst / d.name)
+        # opencc/（emoji.txt 摘掉了 keycap 派生行，见 schema/circled_digits.dict.yaml 头部）
+        for f in sorted((REPO / "opencc").glob("*")):
+            if f.is_file():
+                shutil.copy2(f, dst / "opencc" / f.name)
         for lua in sorted((REPO / "lua").glob("*.lua")):
             shutil.copy2(lua, dst / "lua" / lua.name)
     return dst
@@ -205,6 +216,94 @@ def scenario_delimiter(r: H.Rime, transcript: list[str], tag: str) -> None:
         cands = r.candidates()
         print(f"   input={text!r} -> {len(cands)} 条：{[t for t, _ in cands[:6]]}")
         transcript.append(f"[{tag}] probe input={text!r} -> {len(cands)} 条 {[t for t, _ in cands[:6]]}")
+
+
+# ---------------------------------------------------------------------------
+# 带圈数字 ⓪①②…⑳：符号分类 + 拼音/九宫直出
+# ---------------------------------------------------------------------------
+CIRCLED = "⓪①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
+KEYCAP = "0️⃣1️⃣2️⃣3️⃣4️⃣5️⃣6️⃣7️⃣8️⃣9️⃣🔟"
+CIRCLED_INPUTS = (
+    ("vszq", None, "符号分类 · 整组圆数字（symbols_v.yaml 的 vszq）"),
+    ("v6", "⑥", "符号分类 · v6"),
+    ("/6", None, "对照 · 源主题符号表用的 / 前缀（本包是 v 前缀）"),
+    ("94", "①", "直出 · yi"),
+    ("548", "⑥", "直出 · liu"),
+    ("726", "③", "直出 · san"),
+    ("74494", "⑪", "直出 · shiyi"),
+    ("37744", "⑳", "直出 · ershi（er=37 shi=744 连写）"),
+    ("yuanquan", "①", "直出 · 整组编码 yuanquan"),
+)
+
+
+def scenario_circled(r: H.Rime, transcript: list[str], tag: str) -> None:
+    """带圈数字两条路：符号分类（v 前缀，symbols_v.yaml）与拼音/九宫直出（circled_digits 词库）。
+    直出那几条在 base 变体里应当全部未出现 —— 词库只有 port 才挂得上。
+    同时记录 keycap（0️⃣-9️⃣🔟）的位置：权重对调后它们应当从「紧跟数字字」掉到靠后。"""
+    hdr(f"[{tag}] 带圈数字：符号分类（v 前缀）与拼音/九宫直出（circled_digits 词库）")
+    for text, want, why in CIRCLED_INPUTS:
+        r.clear()
+        r.set_input(text)
+        texts = [t for t, _ in r.candidates()]
+        got = [t for t in texts if t and t in CIRCLED]
+        pos = f"#{texts.index(want) + 1}/{len(texts)}" if want in texts else "未出现"
+        kc = [(i + 1, t) for i, t in enumerate(texts) if any(c in t for c in KEYCAP)]
+        print(f"   input={text!r:11}（{why}）共 {len(texts)} 条；目标 {want} -> {pos}")
+        print(f"      带圈数字 {len(got)} 个：{''.join(got[:22])}")
+        print(f"      keycap：{kc}")
+        transcript.append(
+            f"[{tag}] {why} input={text!r} 候选={len(texts)} 目标={want} 位置={pos} "
+            f"带圈数字={''.join(got[:22])} keycap={kc}")
+
+    # 点选一次，确认真的能上屏（548 = liu = ⑥）
+    r.clear()
+    r.set_input("548")
+    cands = r.candidates()
+    idx = next((i for i, (t, _) in enumerate(cands) if t == "⑥"), None)
+    if idx is None:
+        print("   [FAIL] 548 的候选里没有 ⑥")
+        transcript.append(f"[{tag}] FAIL: 548 候选里没有 ⑥")
+        return
+    r.select(idx)
+    comm = r.take_commit()
+    print(f"   点选 #{idx + 1}（⑥）-> commit={comm!r}（应为 '⑥'）")
+    transcript.append(f"[{tag}] 548 点选 ⑥ -> commit={comm!r} ok={comm == '⑥'}")
+
+
+# ---------------------------------------------------------------------------
+# 符号表分类键：主题「符号表」tab 现在发的是 vxx（旧版是 /xx，在本包上全空转）
+# ---------------------------------------------------------------------------
+SYMBOL_CATEGORIES = (
+    ("vfh", "符号"),
+    ("vdn", "电脑"),
+    ("vxq", "象棋"),
+    ("vsx", "数学"),
+    ("v1", "一"),
+    ("vjm", "假名"),
+    ("vszq", "圆数"),
+    ("vbdz", "竖标"),
+)
+
+
+def scenario_symbol_categories(r: H.Rime, transcript: list[str], tag: str) -> None:
+    """抽查主题「符号表」tab 用的分类键：每个都应当出一组符号（空 = 这个键在本包无效）。"""
+    hdr(f"[{tag}] 符号表分类键抽查（主题 shiyin.trime.yaml 的 symbollist）")
+    empty = []
+    for key, name in SYMBOL_CATEGORIES:
+        r.clear()
+        r.set_input(key)
+        texts = [t for t, _ in r.candidates() if t]
+        ok = bool(texts) and len(texts) > 1
+        if not ok:
+            empty.append(key)
+        print(f"   {key:6s}（{name}）-> {len(texts)} 条：{'、'.join(texts[:8])}")
+        transcript.append(f"[{tag}] 符号分类 {key}({name}) -> {len(texts)} 条 {texts[:8]}")
+    if empty:
+        print(f"   [FAIL] 空转的分类键：{empty}")
+        transcript.append(f"[{tag}] FAIL 空转的分类键 {empty}")
+    else:
+        print(f"   [OK] {len(SYMBOL_CATEGORIES)} 个分类键全部出符号")
+        transcript.append(f"[{tag}] OK {len(SYMBOL_CATEGORIES)} 个分类键全部出符号")
 
 
 def scenario_word_select(r: H.Rime, transcript: list[str], tag: str) -> None:
@@ -552,6 +651,8 @@ def cmd_run(variant: str, mode: str) -> int:
         # 会提交候选的场景（点词、空格）放最后，避免用户词典学习影响前面的读数。
         scenario_regression(r, transcript, variant)
         scenario_delimiter(r, transcript, variant)
+        scenario_circled(r, transcript, variant)
+        scenario_symbol_categories(r, transcript, variant)
         if variant == "port":
             scenario_single_split(r, transcript)
             scenario_final_syllable(r, transcript, mode)

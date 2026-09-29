@@ -24,7 +24,8 @@ APK（侧栏版输入法 App）+ 配置包 zip 都在那里，安装与部署说
 | **音节筛选**（拾音） | ✅ 已移植进 t9 方案（引擎层回归通过 + 真机验收，[剩余 Trime 侧确认项](schema/PORTING.md#8-trimeandroid侧待验证清单)） | 九宫格数字串 → 列出所有合法拼音切分（如 `94343` → `zhe`/`xie`/`zhei`…），**点完一个音节继续给剩余数字的音节候选**（`zhe` → `zhe'43` → `ge` → `zhe'ge`），全程零提交，点词才上屏。Rime 系九宫格长期缺失的能力，由 librime-lua 实现 |
 | 删除键上滑清空 | ✅ | `swipe_up: Clear`（全选删除），原有左滑清空保留 |
 | **音节侧栏**（同文·拾音 fork） | ✅ 真机验收通过 | Trime fork（包名 `com.osfans.trime.shiyin`，与官方共存）把音节候选从横向候选条抽进**左侧竖栏**：叠加覆盖符号列、键盘零位移、可滚动、逐字连续选；设置→候选窗口可开关。源码：[Koishi-Neko/trime](https://github.com/Koishi-Neko/trime)（默认分支 `shiyin-sidebar`），构建说明见仓库根 `SIDEBAR.md` |
-| 空码标点侧栏 | ✅ | 键盘左列高频标点，输入中自动变为分词/翻页等功能，滑动扩展更多符号 |
+| **符号滚动侧栏**（同文·拾音 fork） | ✅ 真机验收通过 | 同一竖栏在空闲时显示 8 个标点`，。？！、——（）【】`（滚动直点上屏，替代原左列单击+长按 4+4）；数字键盘自动换成 `+ - * / = _ （）【】`；组字中与 26 键键盘自动隐藏。设置→候选窗口「符号侧栏」独立开关。fork commit `1280ce9` + `85ee8b4`（修英文 26 键误判） |
+| 空码标点侧栏 | ✅（主题层，被符号滚动侧栏叠加覆盖） | 键盘左列高频标点，输入中自动变为分词/翻页等功能，滑动扩展更多符号 |
 | 数字键盘符号栏 | ✅ | 数字布局左列 `+ - * /` 等符号 |
 | 分类符号面板 | ✅ | liquid keyboard 精简重排：常用(最近) / 中文 / 英文 / 数学 / 表情优先，左侧分类 + 右侧网格 |
 
@@ -48,9 +49,13 @@ APK（侧栏版输入法 App）+ 配置包 zip 都在那里，安装与部署说
 ```
 schema/t9.schema.yaml   雾凇九宫格 t9 方案（原包文件 + 5 处移植改动，可直接覆盖）
 schema/PORTING.md       移植说明：改了哪些行、为什么、真机验收后的调整、Trime 侧待验证清单
+schema/rime_ice.dict.yaml   包内挂载表（原包文件 + `- circled_digits` 一行）
+schema/circled_digits.dict.yaml  带圈数字 ⓪①②…⑳ + keycap 0️⃣-9️⃣🔟（权重已对调；**桌面小狼毫与手机共用这一份源文件**）
+opencc/emoji.txt        手机包 opencc/emoji.txt 的副本，摘掉 11 行 keycap 派生（`零	零 0️⃣`…`十	十 🔟`）
 lua/t9_syllable*.lua    挂进手机包 lua/ 目录的四个 lua（translator / processor / filter / core）
 tools/harness.py        ctypes 直调 rime.dll 的无头测试底座（来自原型工程）
 tools/harness_real.py   用真实手机包 + 真实 rime_ice 词典跑回归（base/port 对照）
+tools/push_incremental.ps1  增量推送到手机 pinyin/（主题/方案/词库/opencc/lua 共 9 个文件）
 docs/                   原型验证报告
 ```
 

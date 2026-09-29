@@ -1,0 +1,105 @@
+# Rime dictionary
+# encoding: utf-8
+#
+# 带圈数字 ⓪①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳ —— 拼音直出小词库
+# 外加 keycap 数字表情 0️⃣1️⃣2️⃣3️⃣4️⃣5️⃣6️⃣7️⃣8️⃣9️⃣🔟（从 emoji 派生里摘出来后落到本表末尾）
+#
+# 唯一来源 = 本文件（PC 小狼毫与手机 T9 共用同一份，改这里就够）：
+#   * PC   ：`知识信息库\rime-lexicon\install-rime-circled.ps1` 装到 %APPDATA%\Rime\circled_digits.dict.yaml，
+#            并在同一目录的 rime_ice.dict.yaml 的 import_tables 里挂 `- circled_digits`
+#   * 手机 ：手机包根目录同名文件（push_incremental.ps1 推送），挂在包内 rime_ice.dict.yaml 的 import_tables
+#
+# 权重（v1.1，2026-09-30 与 keycap 对调）：
+#   * 带圈数字 = 该读法首个汉字在 `cn_dicts\8105.dict.yaml` 里的字频权重。
+#     这正是 keycap 表情原先借用的那一档 —— emoji 派生候选会**复制源候选的 quality**，
+#     所以「一」旁边的「1️⃣」实际权重就等于「一」的 35,278,860。取同值即完成对调：
+#         ① 35278860（= 一） ② 2073729（= 二） ③ 2747794（= 三） … ⑩ 2567177（= 十）
+#         ⑪-⑲ 取「十」2567177，⑳ 取「二」2073729，⓪ 取「零」159040
+#   * keycap 数字表情 = 100 —— 与 ① 之前的权重同级，退到候选末尾（翻页可得，不抢常用字）。
+#     要它们彻底不出现，把这段删掉即可；要让它们重新跟数字字并排，把这段删掉并保留
+#     opencc/emoji.txt 里的 `零→零 0️⃣` 这类派生行（见下）。
+#
+# ⚠️ 为什么必须同时改 opencc/emoji.txt：keycap 是 simplifier@emoji 的**派生候选**
+#   （emoji.txt 里 `一<Tab>一 1️⃣` → librime 的 Simplifier 复制原候选、只换 text），
+#   派生候选没有自己的权重列、位置永远紧跟源候选，UNIQUIFIER 又会把本表里同名的低位候选丢掉。
+#   所以要让 keycap 真的「靠后」，只能把 emoji.txt 里这 11 行（零一…九十）摘掉，
+#   再由本表以权重 100 提供它们。PC 侧由 install-rime-circled.ps1 打这个补丁（带备份、幂等），
+#   手机包侧是仓库里的 opencc/emoji.txt（已摘好）。
+#
+# 实测位次（桌面 rime_ice，2026-09-30，对调前后）：
+#   yi   148 条：① 102 → 3    1️⃣ 3 → 102
+#   liu   34 条：⑥  25 → 6    6️⃣ 6 → 25
+#   san   55 条：③   8 → 3    3️⃣ 3 → 8
+#   shiyi 117 条：⑪ 28 → 2    🔟 — → 97
+---
+
+name: circled_digits
+version: "1.1"
+sort: by_weight
+# 必须显式声明列！librime 缺省按 text/code/weight 三列解析，
+# 显式写出来才能保证「词条<Tab>编码<Tab>权重」被正确读入（缺 columns 会整表被跳过；
+# 头部漏写 `...` 同样会整表被跳过，日志报 entry_collector.cc:65 missing dict settings）。
+columns:
+  - text
+  - code
+  - weight
+...
+
+# ------------------------------------------------------------ 带圈数字（按读法，权重 = 对应汉字字频）
+⓪	ling	159040
+①	yi	35278860
+②	er	2073729
+③	san	2747794
+④	si	1598102
+⑤	wu	1170398
+⑥	liu	635084
+⑦	qi	638221
+⑧	ba	740031
+⑨	jiu	862253
+⑩	shi	2567177
+⑪	shiyi	2567177
+⑫	shier	2567177
+⑬	shisan	2567177
+⑭	shisi	2567177
+⑮	shiwu	2567177
+⑯	shiliu	2567177
+⑰	shiqi	2567177
+⑱	shiba	2567177
+⑲	shijiu	2567177
+⑳	ershi	2073729
+
+# ------------------------------------------------------------ keycap 数字表情（低权重，退到末尾）
+0️⃣	ling	100
+1️⃣	yi	100
+2️⃣	er	100
+3️⃣	san	100
+4️⃣	si	100
+5️⃣	wu	100
+6️⃣	liu	100
+7️⃣	qi	100
+8️⃣	ba	100
+9️⃣	jiu	100
+🔟	shi	100
+
+# ------------------------------------------------------------ 整组编码（yuanquan 一次列全 21 个）
+⓪	yuanquan	100
+①	yuanquan	100
+②	yuanquan	100
+③	yuanquan	100
+④	yuanquan	100
+⑤	yuanquan	100
+⑥	yuanquan	100
+⑦	yuanquan	100
+⑧	yuanquan	100
+⑨	yuanquan	100
+⑩	yuanquan	100
+⑪	yuanquan	100
+⑫	yuanquan	100
+⑬	yuanquan	100
+⑭	yuanquan	100
+⑮	yuanquan	100
+⑯	yuanquan	100
+⑰	yuanquan	100
+⑱	yuanquan	100
+⑲	yuanquan	100
+⑳	yuanquan	100
